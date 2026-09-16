@@ -296,6 +296,132 @@ void port_delay_us(uint32_t us)
     if (us) esp_rom_delay_us(us);
 }
 
+/* ── timers that outlive the display (see port.h) ─────────────
+ * 🚨 esp_timer and not lv_timer, and that is the entire point: LVGL's timers
+ *    are paused the moment the display goes off, and these exist for exactly
+ *    the times when it is off. esp_timer runs off the hardware timer and keeps
+ *    its schedule through light sleep, which is the only reason a one-second
+ *    alarm tick can be afforded at all.
+ *
+ * 🚨 The callback runs on the esp_timer task, **not** the LVGL task. Anything
+ *    that touches LVGL from in here has to take port_lock(), and anything that
+ *    touches flash or I2C holds it for milliseconds while the timer task is
+ *    blocked. So these callbacks set a flag, write a log line, or read one
+ *    I2C byte, and nothing else.
+ *
+ * 🚨 A one-shot cannot delete itself. esp_timer_delete on the handle a callback
+ *    is running on is not allowed, so a spent slot is only marked and the next
+ *    port_timer_start reaps it. */
+#define PORT_TIMER_MAX 6
+
+struct port_timer {
+    esp_timer_handle_t h;
+    port_timer_fn      fn;
+    void              *arg;
+    const char        *name;
+    bool               used;
+    bool               repeat;
+    bool               spent;   /* fired (one-shot) or stopped mid-callback */
+    bool               in_cb;
+};
+
+static struct port_timer s_pt[PORT_TIMER_MAX];
+
+static void pt_trampoline(void *a)
+{
+    struct port_timer *t = a;
+    /* Read these before anything can null them: a callback is allowed to stop
+     * or restart its own timer. */
+    port_timer_fn fn = t->fn;
+    void *arg = t->arg;
+    t->in_cb = true;
+    if (!t->repeat) t->spent = true;    /* spent as soon as it fires */
+    if (fn) fn(arg);
+    t->in_cb = false;
+}
+
+/* Finds a free slot, reaping any that finished since the last start. */
+static struct port_timer *pt_take(void)
+{
+    for (int i = 0; i < PORT_TIMER_MAX; i++) {
+        struct port_timer *t = &s_pt[i];
+        if (t->used && t->spent && !t->in_cb) {
+            if (t->h) esp_timer_delete(t->h);
+            memset(t, 0, sizeof *t);
+        }
+        if (!t->used) return t;
+    }
+    return NULL;
+}
+
+port_timer_t *port_timer_start(const char *name, uint32_t period_ms, bool repeat,
+                               port_timer_fn fn, void *arg)
+{
+    if (!fn || !period_ms) return NULL;
+    struct port_timer *t = pt_take();
+    if (!t) {
+        ESP_LOGW("ptimer", "no room for '%s' — see PORT_TIMER_MAX", name ? name : "?");
+        return NULL;
+    }
+    t->fn = fn;
+    t->arg = arg;
+    t->name = name;
+    t->used = true;
+    t->repeat = repeat;
+
+    const esp_timer_create_args_t args = {
+        .callback = pt_trampoline,
+        .arg = t,
+        .dispatch_method = ESP_TIMER_TASK,
+        /* 🚨 Do not let a queue of missed ticks pile up. Waking once and
+         * skipping the rest is what we want — this is a badge. */
+        .skip_unhandled_events = true,
+        .name = name ? name : "ptimer",
+    };
+    if (esp_timer_create(&args, &t->h) != ESP_OK) {
+        memset(t, 0, sizeof *t);
+        return NULL;
+    }
+    esp_err_t r = repeat ? esp_timer_start_periodic(t->h, (uint64_t)period_ms * 1000)
+                         : esp_timer_start_once(t->h, (uint64_t)period_ms * 1000);
+    if (r != ESP_OK) {
+        ESP_LOGW("ptimer", "could not start '%s' (%d)", name ? name : "?", (int)r);
+        esp_timer_delete(t->h);
+        memset(t, 0, sizeof *t);
+        return NULL;
+    }
+    return t;
+}
+
+void port_timer_stop(port_timer_t *t)
+{
+    if (!t || !t->used) return;
+    if (t->h) esp_timer_stop(t->h);
+    if (t->in_cb) {
+        /* 🚨 Called from its own callback. The handle may not be deleted here,
+         * so mark the slot and let the next start reap it. */
+        t->spent = true;
+    } else {
+        if (t->h) esp_timer_delete(t->h);
+        t->h = NULL;
+        t->used = false;
+        t->spent = false;
+    }
+    t->fn = NULL;
+    t->arg = NULL;
+}
+
+int port_timer_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < PORT_TIMER_MAX; i++) if (s_pt[i].used) n++;
+    return n;
+}
+
+/* Nothing to do: esp_timer calls back on its own. It exists so launcher.c does
+ * not have to know which side of the seam it is on. */
+void port_timer_pump(void) { }
+
 /* Guessing whether a crash was memory is no way to settle it. Write the
  * numbers down. Internal RAM is only 512 KB and the BLE stack takes a large
  * share of it; PSRAM is 8 MB and roomy. When the largest free block falls far
@@ -465,7 +591,7 @@ void port_tone_volume(int percent)
 
 void port_brightness_set(int percent)
 {
-    if (percent < 1) percent = 1;      /* 0 means "off", which Settings must not be able to reach */
+    if (percent < 1) percent = 1;      /* 0 means "关", which Settings must not be able to reach */
     if (percent > 100) percent = 100;
     s_bright_saved = percent;
     badge_display_brightness(percent);
@@ -686,7 +812,7 @@ void port_wifi_scan_start(void)
      * (it is down to 22 KB while the clock sync holds WiFi), and xTaskCreate
      * takes the TCB and the 4 KB stack from it. When it fails, s_scan_n stays
      * -1 ("still scanning") and s_scan_busy latches true — the screen never
-     * leaves "looking around..." and no later scan runs either, until a
+     * leaves "搜索中…" and no later scan runs either, until a
      * reboot. Answer "nothing found" and release the latch instead. */
     if (xTaskCreate(scan_task, "wifiscan", 4096, NULL, 4, NULL) != pdPASS) {
         ESP_LOGE("wifi", "could not create the scan task - out of internal RAM");
@@ -750,7 +876,7 @@ static void try_task(void *arg)
         }
     }
     ESP_LOGI("wifi", "join %s (SSID %s)",
-             ok == WIFI_TRY_OK ? "succeeded" : "failed", s_try_ssid);
+             ok == WIFI_TRY_OK ? "succeeded" : "失败", s_try_ssid);
     memset(s_try_pass, 0, sizeof s_try_pass);   /* no reason to hold it any longer */
     s_try_state = ok;
     s_try_busy = false;
@@ -778,7 +904,7 @@ void port_wifi_try(const char *ssid, const char *pass)
     s_try_busy = true;
     s_try_state = WIFI_TRY_BUSY;
     /* 🚨 Same place as the scan: without this the state stays WIFI_TRY_BUSY
-     * and "connecting..." never ends. */
+     * and "连接中…" never ends. */
     if (xTaskCreate(try_task, "wifitry", 4096, NULL, 4, NULL) != pdPASS) {
         ESP_LOGE("wifi", "could not create the join task - out of internal RAM");
         s_try_state = WIFI_TRY_FAIL;
@@ -1102,7 +1228,7 @@ static void sync_task(void *arg)
     esp_wifi_disconnect();
     esp_wifi_stop();
     esp_wifi_deinit();
-    ESP_LOGI("net", "clock sync %s", s_net == NET_SYNCED ? "succeeded" : "failed");
+    ESP_LOGI("net", "clock sync %s", s_net == NET_SYNCED ? "succeeded" : "失败");
     badge_wifi_give();
     vTaskDelete(NULL);
 }
@@ -1155,7 +1281,7 @@ net_state_t port_time_sync_state(void) { return s_net; }
 
 const char *port_bt_status(void)
 {
-    return "off";        /* with BLE HID attached this returns the host's name */
+    return "关";        /* with BLE HID attached this returns the host's name */
 }
 
 /* ── how many fingers ─────────────────────────────────────────
@@ -1201,8 +1327,8 @@ int port_touch_count(void)
  *
  * It used to only set the brightness to zero (which is all the BSP's
  * backlight_off does). The pixels go dark but the driver, the gate scan and
- * the boost converter all keep running — measured, "off" still drew 44% of
- * "on" (76 mV/h against 171 mV/h).
+ * the boost converter all keep running — measured, "关" still drew 44% of
+ * "开" (76 mV/h against 171 mV/h).
  * Now 0x28 (Display Off) stops the scan. How much that saved shows up
  * immediately if measured the same way.
  *
@@ -1355,7 +1481,7 @@ static void axp_init(void)
         int cc = (icc & 0x1F);
         int cc_ma = (cc <= 8) ? cc * 25 : 300 + (cc - 9) * 100;
         static const char *CV[] = { "-", "4.00V", "4.10V", "4.20V", "4.35V", "4.40V", "?", "?" };
-        static const char *ST[] = { "idle", "pre-charge", "CC", "CV", "done", "stopped", "?", "?" };
+        static const char *ST[] = { "空闲", "pre-charge", "CC", "CV", "完成", "stopped", "?", "?" };
         ESP_LOGI("axp", "charge  current %dmA, termination %dmA, full %s, pre-charge %dmA",
                  cc_ma, (iterm & 0x0F) * 25, CV[cv & 0x07], (ipre & 0x0F) * 25);
         ESP_LOGI("axp", "protect cutoff %.1fV, system min %.2fV, now %s",
@@ -1693,7 +1819,7 @@ void port_imu_gyro_enable(bool on)
         qmi8658_enable_gyro(&s_imu, false);
     }
     s_gyro_on = on;
-    ESP_LOGI("imu", "gyro %s", on ? "on" : "off");
+    ESP_LOGI("imu", "gyro %s", on ? "开" : "关");
 }
 
 bool port_imu_gyro(float *x, float *y, float *z)
@@ -1752,7 +1878,7 @@ bool port_imu_angle(float *deg)
 #define AXP_REG_BAT_PCT   0xA4
 
 /* Common config (0x10) bit 0 is soft power-off.
- * It used to show the words "power off" and stay on, which is worse than
+ * It used to show the words "关机" and stay on, which is worse than
  * doing nothing. It really cuts power now; PWR has to be pressed to return. */
 #define AXP_REG_COMMON  0x10
 
@@ -1760,7 +1886,7 @@ void port_power_off(void)
 {
     uint8_t v = 0;
     if (!axp_rd(AXP_REG_COMMON, &v)) return;
-    ESP_LOGI("axp", "power off");
+    ESP_LOGI("axp", "关机");
     axp_wr(AXP_REG_COMMON, v | 0x01);
 }
 
@@ -2064,7 +2190,7 @@ typedef struct {
 
 static const char *CRUMB_NAME[] = {
     "just booted", "home", "lock", "screen off", "screen on",
-    "opening app", "mouse", "meeting", "game", "calc", "clock", "settings", "recording",
+    "opening app", "mouse", "meeting", "game", "calc", "clock", "settings", "录音中",
 };
 #define CRUMB_N (sizeof(CRUMB_NAME)/sizeof(CRUMB_NAME[0]))
 

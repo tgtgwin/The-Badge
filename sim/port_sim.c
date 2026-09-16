@@ -59,6 +59,88 @@ uint32_t port_micros(void) { return g_sim_us; }
 void     port_delay_us(uint32_t us) { g_sim_us += us; }
 void    *port_big_alloc(size_t n) { return malloc(n); }
 
+/* ── timers that outlive the display (see port.h) ─────────────
+ * 🚨 The simulator has no esp_timer and no light sleep, so these are a plain
+ *    list pumped from the virtual clock in main_sim.c's advance(). The
+ *    difference from the board is real and worth naming: on the board these
+ *    keep their schedule through light sleep, here time only moves when the
+ *    simulator is told to move it. What it does reproduce is the property the
+ *    interface actually depends on — that these keep firing while LVGL's timers
+ *    have been paused along with the display. That is testable, and it is
+ *    tested: sim-hold-check and the alarm both go through here. */
+#define PORT_TIMER_MAX 6
+
+struct port_timer {
+    port_timer_fn fn;
+    void         *arg;
+    uint32_t      period_us;
+    uint32_t      next_us;
+    bool          used;
+    bool          repeat;
+};
+
+static struct port_timer s_pt[PORT_TIMER_MAX];
+
+port_timer_t *port_timer_start(const char *name, uint32_t period_ms, bool repeat,
+                               port_timer_fn fn, void *arg)
+{
+    (void)name;
+    if (!fn || !period_ms) return NULL;
+    for (int i = 0; i < PORT_TIMER_MAX; i++) {
+        if (s_pt[i].used) continue;
+        s_pt[i].fn        = fn;
+        s_pt[i].arg       = arg;
+        s_pt[i].period_us = period_ms * 1000u;
+        s_pt[i].next_us   = port_micros() + period_ms * 1000u;
+        s_pt[i].used      = true;
+        s_pt[i].repeat    = repeat;
+        return &s_pt[i];
+    }
+    fprintf(stderr, "[ptimer] no room for '%s'\n", name ? name : "?");
+    return NULL;
+}
+
+void port_timer_stop(port_timer_t *t)
+{
+    if (!t) return;
+    t->used = false;
+    t->fn   = NULL;
+    t->arg  = NULL;
+}
+
+int port_timer_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < PORT_TIMER_MAX; i++) if (s_pt[i].used) n++;
+    return n;
+}
+
+void port_timer_pump(void)
+{
+    uint32_t now = port_micros();
+    for (int i = 0; i < PORT_TIMER_MAX; i++) {
+        struct port_timer *t = &s_pt[i];
+        if (!t->used || !t->fn) continue;
+        /* 🚨 Signed distance, so a clock that has wrapped past 2^32 is not read
+         * as "not due for another seventy minutes". port_micros() wraps every
+         * ~71 minutes on the board too, which is why nothing here compares
+         * absolute values. */
+        if ((int32_t)(now - t->next_us) < 0) continue;
+
+        /* One catch-up at most. advance() can step far enough that a one-second
+         * timer is overdue several times over, and firing it all of them at
+         * once would stall the frame for no benefit — the badge wanted to know
+         * "a second went by", not "nine seconds went by". */
+        t->next_us += t->period_us;
+        if ((int32_t)(now - t->next_us) >= 0) t->next_us = now + t->period_us;
+
+        port_timer_fn fn = t->fn;
+        void *arg = t->arg;
+        if (!t->repeat) { t->used = false; t->fn = NULL; t->arg = NULL; }
+        fn(arg);
+    }
+}
+
 void port_task_start(const char *name, void (*fn)(void *), void *arg, int stack)
 {
     (void)name; (void)fn; (void)arg; (void)stack;   /* in the simulator the caller drives it directly */
@@ -345,8 +427,13 @@ bool port_meet_recv(uint8_t *status)
 size_t port_rec_capacity(void) { return 24u * 1024 * 1024; }
 
 int  port_battery_mv(void) { return 3900; }
-void port_battery_log(const char *what) { (void)what; }
-void port_battery_mark(bool on) { (void)on; }
+/* 🚨 These print, unlike most of the simulator's stubs, and there is a reason:
+ * the journal is the only thing observable from outside that shows the port
+ * timers (port.h) really do keep firing once the display has gone dark. It is
+ * also the first thing to break if idle_timers() is ever changed to pause more
+ * than it should — so tools/sim-dark-timer-check.py reads this output. */
+void port_battery_log(const char *what) { fprintf(stderr, "[batt] %s\n", what ? what : "?"); }
+void port_battery_mark(bool on) { fprintf(stderr, "[batt] display %s\n", on ? "on" : "off"); }
 
 
 /* ── recording (simulator) ────────────────────────────────
@@ -355,20 +442,72 @@ void port_battery_mark(bool on) { (void)on; }
 static uint32_t s_rec_t0;
 static bool     s_rec_on;
 static int      s_rec_pend;
+/* Pause state, kept beside the clock it corrects. */
+static bool     s_rec_paused;
+static uint32_t s_rec_paused_us;
+static uint32_t s_rec_pause_began;
 
 bool port_rec_start(int lang)
 {
     (void)lang;
     port_log("rec", "recording started (simulator)");
     s_rec_t0 = port_micros();
+    /* As on the board: these carry across a recording unless they are cleared. */
+    s_rec_paused = false;
+    s_rec_pause_began = 0;
+    s_rec_paused_us = 0;
     s_rec_on = true;
     return true;
 }
 void     port_rec_stop(void)   { if (s_rec_on) { s_rec_on = false; s_rec_pend++; } }
 bool     port_rec_active(void) { return s_rec_on; }
-uint32_t port_rec_seconds(void){ return s_rec_on ? (port_micros() - s_rec_t0) / 1000000 : 0; }
 uint32_t port_rec_free_seconds(void) { return 52 * 60; }
 int      port_rec_pending(void)      { return s_rec_pend; }
+
+/* ── pause and the meter ──────────────────────────────────────
+ * 🚨 The level here is not a stub that returns a constant. The meter is a piece
+ *    of interface, and a bar that sits at one value cannot show that it is
+ *    wired up, that it moves, or that its colours change when it goes too hot —
+ *    which is everything there is to check about it without a microphone. A slow
+ *    triangle over two seconds is enough for all three, and it is driven off
+ *    the virtual clock so it moves in screenshots and in the checks alike. */
+bool port_rec_paused(void) { return s_rec_paused; }
+
+/* 🚨 Mirrors the board's: the wall clock minus the paused stretches. If the
+ *    simulator simply let the clock run through a pause, the one thing a pause
+ *    exists to do would be the one thing not tested here. */
+uint32_t port_rec_seconds(void)
+{
+    if (!s_rec_on) return 0;
+    uint32_t paused = s_rec_paused_us;
+    if (s_rec_paused && s_rec_pause_began) paused += port_micros() - s_rec_pause_began;
+    uint32_t ran = port_micros() - s_rec_t0 - paused;
+    return ran / 1000000u;
+}
+
+void port_rec_pause(bool on)
+{
+    if (!s_rec_on || on == s_rec_paused) return;
+    if (on) {
+        s_rec_pause_began = port_micros();
+        s_rec_paused = true;
+    } else {
+        if (s_rec_pause_began) {
+            s_rec_paused_us += port_micros() - s_rec_pause_began;
+            s_rec_pause_began = 0;
+        }
+        s_rec_paused = false;
+    }
+}
+
+int port_rec_level(void)
+{
+    if (!s_rec_on) return 0;
+    /* 0 → 100 → 0 over two seconds, so the bar sweeps its whole range. */
+    uint32_t t = (port_micros() - s_rec_t0 - s_rec_paused_us) % 2000000u;
+    uint32_t half = (t < 1000000u) ? t : 2000000u - t;
+    return (int)(half / 10000u);
+}
 void     port_rec_upload_try(void)   { s_rec_pend = 0; }
 bool     port_rec_uploading(void)    { return false; }
 const char *port_rec_upload_msg(void){ return ""; }

@@ -28,3 +28,6 @@ __pycache__/
 *.pyc
 docs/flash/*.bin
 docs/flash/manifest.json
+
+# CodeBuddy workspace metadata
+.codebuddy

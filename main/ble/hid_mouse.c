@@ -255,7 +255,7 @@ void badge_ble_bonded(esp_bd_addr_t addr)
     };
     memcpy(p.bda, addr, sizeof(esp_bd_addr_t));
     esp_err_t r = esp_ble_gap_update_conn_params(&p);
-    ESP_LOGI(TAG, "requested a 7.5-15 ms interval (%s)", r == ESP_OK ? "sent" : "failed");
+    ESP_LOGI(TAG, "requested a 7.5-15 ms interval (%s)", r == ESP_OK ? "sent" : "失败");
 }
 
 void ble_hid_task_start_up(void)
@@ -286,13 +286,13 @@ static void hidd_cb(void *handler_args, esp_event_base_t base, int32_t id, void 
         break;
     case ESP_HIDD_CONNECT_EVENT:
         s_connected = true;
-        snprintf(s_peer, sizeof(s_peer), "connected");
-        ESP_LOGI(TAG, "connected");
+        snprintf(s_peer, sizeof(s_peer), "已连接");
+        ESP_LOGI(TAG, "已连接");
         break;
     case ESP_HIDD_DISCONNECT_EVENT:
         s_connected = false;
         s_peer_addr_ok = false;      /* disconnected, so forget who it was */
-        snprintf(s_peer, sizeof(s_peer), "advertising");
+        snprintf(s_peer, sizeof(s_peer), "等待连接");
         esp_hid_ble_gap_adv_start();
         break;
     case ESP_HIDD_STOP_EVENT:
@@ -375,7 +375,7 @@ bool port_hid_start(void)
         return false;
     }
     s_inited = true;
-    snprintf(s_peer, sizeof(s_peer), "advertising");
+    snprintf(s_peer, sizeof(s_peer), "等待连接");
     ESP_LOGI(TAG, "BLE up (%lld ms) — internal RAM %uKB",
              (esp_timer_get_time() - s_start_us) / 1000,
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
@@ -406,7 +406,7 @@ void port_hid_stop(void)
 
     s_inited = false;
     s_connected = false;
-    snprintf(s_peer, sizeof(s_peer), "off");
+    snprintf(s_peer, sizeof(s_peer), "关");
     ESP_LOGI(TAG, "BLE down (%lld ms) — internal RAM %uKB",
              (esp_timer_get_time() - t0) / 1000,
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
@@ -504,7 +504,7 @@ void port_hid_mouse(int dx, int dy, unsigned buttons, int wheel)
     if (esp_hidd_dev_input_set(s_dev, 0, 1, rpt, sizeof(rpt)) != ESP_OK) {
         /* Catch it here even if the event was missed */
         s_connected = false;
-        snprintf(s_peer, sizeof(s_peer), "advertising");
+        snprintf(s_peer, sizeof(s_peer), "等待连接");
         esp_hid_ble_gap_adv_start();
     }
 }

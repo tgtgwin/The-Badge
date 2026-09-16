@@ -5,6 +5,7 @@
  * The content lives in main/snippets.h, which is excluded by .gitignore.
  * Without it, examples are shown. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
 
@@ -21,7 +22,7 @@ static const snip_t SNIPS[] = {
     /* 🚨 This label is rendered in Montserrat, which carries Latin only.
      * Anything outside that range — in BADGE_SNIPPETS text too — comes out as
      * tofu boxes. Using it means building a font that has those glyphs. */
-    { "no snippets", "" },
+    { "没有片段", "" },
 #endif
 };
 #define SNIP_CNT (sizeof(SNIPS) / sizeof(SNIPS[0]))
@@ -33,14 +34,14 @@ static void tap_cb(lv_event_t *e)
     const snip_t *s = (const snip_t *)lv_event_get_user_data(e);
     if (!s->text[0]) return;
     port_hid_type(s->text);
-    lv_label_set_text_fmt(s_state, "sent  %s", s->label);
+    lv_label_set_text_fmt(s_state, "已发送 %s", s->label);
 }
 
 void type_build(lv_obj_t *root)
 {
     lv_obj_t *t = lv_label_create(root);
-    lv_label_set_text(t, "Type");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_label_set_text(t, "文字注入");
+    lv_obj_set_style_text_font(t, &font_zh_20, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x8A8A90), 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, -160);
 
@@ -58,13 +59,13 @@ void type_build(lv_obj_t *root)
 
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, SNIPS[i].label);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(l, &font_zh_24, 0);
         lv_obj_center(l);
     }
 
     s_state = lv_label_create(root);
     lv_label_set_text(s_state, "");
-    lv_obj_set_style_text_font(s_state, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_state, &font_zh_16, 0);
     lv_obj_set_style_text_color(s_state, lv_color_hex(0x5BD48A), 0);
     lv_obj_align(s_state, LV_ALIGN_CENTER, 0, 168);
 }

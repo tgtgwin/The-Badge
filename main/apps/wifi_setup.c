@@ -21,6 +21,7 @@
  * worked", which is the question you actually have ("is this one good?").
  */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include <stdio.h>
 #include <string.h>
@@ -31,7 +32,7 @@ static uint32_t    s_wait_t0;              /* when the waiting started */
 static bool        s_stalled;              /* gave up waiting for an answer */
 
 /* 🚨 When the layer below never answers, the screen is stuck on
- * "looking around..." forever. It happened (09-13): if the scan task cannot be
+ * "搜索中…" forever. It happened (09-13): if the scan task cannot be
  * created the result stays -1, and there was no bound here — it just asked
  * again every 200 ms for ever. The way out existed (the back button), but
  * coming back in landed on the same screen, and that boot could not scan again.
@@ -62,7 +63,7 @@ static void note(const char *txt, uint32_t col)
 {
     if (!s_note) {
         s_note = lv_label_create(s_scr);
-        lv_obj_set_style_text_font(s_note, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(s_note, &font_zh_18, 0);
         lv_obj_align(s_note, LV_ALIGN_CENTER, 0, 0);
     }
     lv_obj_set_style_text_color(s_note, lv_color_hex(col), 0);
@@ -84,18 +85,18 @@ static void try_poll(lv_timer_t *t)
     int st = port_wifi_try_state();
     if (st == WIFI_TRY_BUSY) {
         if (lv_tick_elaps(s_wait_t0) > TRY_STALL_MS)
-            stall("no answer - tap to retry");
+            stall("没有回应 —— 点一下重试");
         return;
     }
     lv_timer_delete(s_poll); s_poll = NULL;
 
     if (st == WIFI_TRY_OK) {
-        note("connected", 0x5BD48A);
+        note("已连接", 0x5BD48A);
     } else {
         /* 🚨 There is no clean way to tell a wrong password from a network
          * that has gone away, and both happen — so say both. Naming only one
          * sends people off fixing the wrong thing. */
-        note("failed - wrong key?", 0xE06A6A);
+        note("失败 —— 密码不对？", 0xE06A6A);
     }
     /* Hold the result a moment, then back to the list so you see which row went green. */
     s_poll = lv_timer_create(rescan_cb, 1600, NULL);
@@ -105,7 +106,7 @@ static void try_poll(lv_timer_t *t)
 static void try_now(const char *ssid, const char *pass)
 {
     clear_body();
-    note("connecting...", 0xE0B33A);
+    note("连接中…", 0xE0B33A);
     port_wifi_try(ssid, pass);
     s_wait_t0 = lv_tick_get();
     s_poll = lv_timer_create(try_poll, 300, NULL);
@@ -152,25 +153,25 @@ static void scan_poll(lv_timer_t *t)
     /* 🚨 Never getting the radio is not an empty neighbourhood. The clock sync
      * holds it for a few seconds after a boot or a plug-in, and a scan that
      * runs into that waits its eight seconds and comes back with nothing.
-     * Saying "nothing around" there sends the person looking for a fault in
+     * Saying "附近没有网络" there sends the person looking for a fault in
      * their router. Say what actually happened, and try again by itself —
      * the radio is about to be free. */
     if (n == WIFI_SCAN_NO_RADIO) {
         if (s_poll) { lv_timer_delete(s_poll); s_poll = NULL; }
-        note("radio busy - retrying", 0xE0B33A);
+        note("无线被占用 —— 正在重试", 0xE0B33A);
         s_poll = lv_timer_create(rescan_cb, 1500, NULL);
         lv_timer_set_repeat_count(s_poll, 1);
         return;
     }
     if (n < 0) {                                /* still scanning */
         if (lv_tick_elaps(s_wait_t0) > SCAN_STALL_MS)
-            stall("scan stalled - tap to retry");
+            stall("扫描卡住 —— 点一下重试");
         return;
     }
     s_n = n;
     lv_timer_delete(s_poll); s_poll = NULL;
     if (s_note) { lv_obj_delete(s_note); s_note = NULL; }
-    if (s_n == 0) { note("nothing around", 0x6E7686); return; }
+    if (s_n == 0) { note("附近没有网络", 0x6E7686); return; }
 
     /* 🚨 Saved networks float to the top. The one you always use being ten
      * rows down means scrolling to find it, and that is most of what "tap it
@@ -212,17 +213,17 @@ static void scan_poll(lv_timer_t *t)
 
         lv_obj_t *t2 = lv_label_create(b);
         lv_label_set_text(t2, s_found[i].ssid);
-        lv_obj_set_style_text_font(t2, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(t2, &font_zh_18, 0);
         lv_obj_set_style_text_color(t2, lv_color_hex(0xE8ECF0), 0);
         lv_obj_align(t2, LV_ALIGN_LEFT_MID, 0, -11);
 
         char sub[44];
-        if (ok)                    snprintf(sub, sizeof sub, "%d dBm  -  connected", s_found[i].rssi);
-        else if (s_found[i].saved) snprintf(sub, sizeof sub, "%d dBm  -  saved", s_found[i].rssi);
+        if (ok)                    snprintf(sub, sizeof sub, "%d dBm  -  已连接", s_found[i].rssi);
+        else if (s_found[i].saved) snprintf(sub, sizeof sub, "%d dBm  -  已保存", s_found[i].rssi);
         else                       snprintf(sub, sizeof sub, "%d dBm", s_found[i].rssi);
         lv_obj_t *s2 = lv_label_create(b);
         lv_label_set_text(s2, sub);
-        lv_obj_set_style_text_font(s2, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(s2, &font_zh_14, 0);
         lv_obj_set_style_text_color(s2, lv_color_hex(ok ? 0xCDEEDD : 0x8A93A6), 0);
         lv_obj_align(s2, LV_ALIGN_LEFT_MID, 0, 12);
     }
@@ -231,7 +232,7 @@ static void scan_poll(lv_timer_t *t)
 static void show_scan(void)
 {
     clear_body();
-    note("looking around...", 0x6E7686);
+    note("搜索中…", 0x6E7686);
     port_wifi_scan_start();
     s_wait_t0 = lv_tick_get();
     s_poll = lv_timer_create(scan_poll, 200, NULL);
@@ -268,14 +269,14 @@ void wifi_setup_open(void)
     lv_obj_add_event_cb(s_scr, retry_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *t = lv_label_create(s_scr);
-    lv_label_set_text(t, "Wi-Fi");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_label_set_text(t, "无线网络");
+    lv_obj_set_style_text_font(t, &font_zh_20, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x8A93A6), 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, -186);
 
     lv_obj_t *h = lv_label_create(s_scr);
-    lv_label_set_text(h, "tap to join  -  hold to forget");
-    lv_obj_set_style_text_font(h, &lv_font_montserrat_14, 0);
+    lv_label_set_text(h, "轻点加入  -  长按忘记");
+    lv_obj_set_style_text_font(h, &font_zh_14, 0);
     lv_obj_set_style_text_color(h, lv_color_hex(0x5A5A66), 0);
     lv_obj_align(h, LV_ALIGN_CENTER, 0, 186);
 

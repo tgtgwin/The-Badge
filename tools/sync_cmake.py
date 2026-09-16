@@ -20,7 +20,7 @@ def rel(pattern):
 #    missing from this list is quietly dropped. Every folder holding sources has
 #    to be named.
 srcs = (rel("*.c") + rel("apps/*.c") + rel("ble/*.c")
-        + rel("assets/*.c"))
+        + rel("assets/*.c") + rel("fonts/*.c"))
 
 lines = ["idf_component_register(", "    SRCS"]
 lines += ["        %s" % s for s in srcs]
@@ -28,7 +28,10 @@ lines += ["        %s" % s for s in srcs]
 # the tinyusb headers (usb_msc.c) has to see it too. On the tinyusb component's
 # side the top-level CMakeLists.txt pushes it in separately — that side knows
 # nothing about our paths.
-lines += ['    INCLUDE_DIRS "." "apps" "ble" "usb")']
+# 🚨 "fonts" holds the generated Chinese faces (tools/mkfonts.py). They are
+#    included as "fonts/fonts.h" from main/, so "." would do; naming the folder
+#    as well lets a file inside it include "fonts.h" plainly.
+lines += ['    INCLUDE_DIRS "." "apps" "ble" "usb" "fonts")']
 
 # 🚨 The newline and the encoding are pinned. Writing with the Windows defaults
 #    mixes in CRLF, and a one-line change then spreads the git diff across the

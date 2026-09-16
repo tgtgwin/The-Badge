@@ -58,6 +58,11 @@ static void leave(void)
 static lv_color_t tint(void) { return lv_color_hex(0xE8E2D2); }
 
 const badge_app_t app_clock = {
-    .name = "Clock", .art = &app_icon_clock, .icon = LV_SYMBOL_SETTINGS, .tint = tint,
+    /* 🚨 timers_dark: the countdown, the stopwatch and the alarm all count in
+     * LVGL timers, and all of them have to keep counting with the display off —
+     * a timer that only runs while you are looking at it is not a timer. See
+     * badge_app_t in app.h for why this is separate from keep_awake. */
+    .name = "时钟", .art = &app_icon_clock, .icon = LV_SYMBOL_SETTINGS, .tint = tint,
+    .timers_dark = true,
     .radio = RADIO_OFF, .enter = enter, .leave = leave,
 };

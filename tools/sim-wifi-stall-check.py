@@ -71,7 +71,7 @@ def run(var, wait_ms, want):
 
     step(800)
     send("K 0\n"); step(400)
-    send("A 8\n"); step(600)
+    send("A 6\n"); step(600)
     drag(233, 380, 140)
     tap(*WIFI_ROW)
 

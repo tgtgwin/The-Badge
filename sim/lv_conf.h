@@ -107,7 +107,11 @@
  *====================*/
 
 /** Default display refresh, input device read and animation step period. */
-#define LV_DEF_REFR_PERIOD  33      /**< [ms] */
+/* 🚨 Must match CONFIG_LV_DEF_REFR_PERIOD in sdkconfig.defaults, which is 30.
+ * It said 33 while the badge said 15, so the two had been drawing at different
+ * rates — and a timing difference between the simulator and the hardware is the
+ * kind that makes a bug unfindable. */
+#define LV_DEF_REFR_PERIOD  30      /**< [ms] */
 
 /** Default Dots Per Inch. Used to initialize default sizes such as widgets sized, style paddings.
  * (Not so important, you can adjust it to modify default sizes and spaces.) */

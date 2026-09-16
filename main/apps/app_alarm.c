@@ -16,6 +16,7 @@
  * that is already off. The timer was caught by exactly this once — turn it on
  * first, then hold it on. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include <time.h>
 
@@ -109,8 +110,8 @@ static void start_ring(void)
     lv_obj_align(big, LV_ALIGN_CENTER, 0, -20);
 
     lv_obj_t *h = lv_label_create(s_ring);
-    lv_label_set_text(h, "tap to stop");
-    lv_obj_set_style_text_font(h, &lv_font_montserrat_20, 0);
+    lv_label_set_text(h, "轻点停止");
+    lv_obj_set_style_text_font(h, &font_zh_20, 0);
     lv_obj_set_style_text_color(h, lv_color_hex(0x8A8A96), 0);
     lv_obj_align(h, LV_ALIGN_CENTER, 0, 50);
 
@@ -157,7 +158,7 @@ static void paint(void)
      * is no telling what it is set to — anything but green will do. */
     lv_obj_set_style_text_color(s_time_lbl,
         s_on ? lv_color_hex(0x5BD48A) : lv_color_hex(0xA8AEBC), 0);
-    lv_label_set_text(s_state_lbl, s_on ? "on" : "off");
+    lv_label_set_text(s_state_lbl, s_on ? "开" : "关");
     lv_obj_set_style_text_color(s_state_lbl,
         s_on ? lv_color_hex(0x081A10) : lv_color_hex(0xD2D8E4), 0);
     /* Show on/off through the panel colour rather than the text — a block of
@@ -205,7 +206,7 @@ static lv_obj_t *mk_btn(lv_obj_t *root, int dx, int dy, const char *txt, int wha
     lv_obj_add_event_cb(b, bump_cb, LV_EVENT_CLICKED, (void *)(intptr_t)what);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(l, &font_zh_24, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(0xD2D8E4), 0);
     lv_obj_center(l);
     return b;
@@ -239,7 +240,7 @@ void alarm_build(lv_obj_t *root)
     s_tog = mk_btn(root, 0, 152, "", 4);
     lv_obj_set_size(s_tog, 150, 62);
     s_state_lbl = lv_label_create(s_tog);
-    lv_obj_set_style_text_font(s_state_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(s_state_lbl, &font_zh_24, 0);
     lv_obj_center(s_state_lbl);
 
     /* 🚨 Putting "hour        min" in a single label pushed both words toward
@@ -247,14 +248,14 @@ void alarm_build(lv_obj_t *root)
      * columns (09-10, in the simulator). One label per column — a name has to
      * be directly above what it names. */
     s_hint = lv_label_create(root);
-    lv_label_set_text(s_hint, "hour");
-    lv_obj_set_style_text_font(s_hint, &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_hint, "时");
+    lv_obj_set_style_text_font(s_hint, &font_zh_20, 0);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(0x6E7686), 0);
     lv_obj_align(s_hint, LV_ALIGN_CENTER, -112, -148);
 
     lv_obj_t *h2 = lv_label_create(root);
-    lv_label_set_text(h2, "min");
-    lv_obj_set_style_text_font(h2, &lv_font_montserrat_20, 0);
+    lv_label_set_text(h2, "分");
+    lv_obj_set_style_text_font(h2, &font_zh_20, 0);
     lv_obj_set_style_text_color(h2, lv_color_hex(0x6E7686), 0);
     lv_obj_align(h2, LV_ALIGN_CENTER, 112, -148);
 

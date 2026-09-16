@@ -10,6 +10,7 @@
  * leaks depending on the stack, so hid_mouse.c has a second guard that checks
  * the address on connect and drops it if it is the wrong one. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include <stdio.h>
 #include <string.h>
@@ -97,7 +98,7 @@ static void rename_cb(lv_event_t *e)
     s_editing = i;
     if (s_list) { lv_obj_delete(s_list); s_list = NULL; s_built = false; }
     if (s_poll) { lv_timer_delete(s_poll); s_poll = NULL; }
-    keypad_open("name this host", s_hosts[i].name, name_done);
+    keypad_open("给这台设备起名", s_hosts[i].name, name_done);
 }
 
 static void any_cb(lv_event_t *e)
@@ -150,21 +151,21 @@ static void show_list(void)
         lv_obj_t *t = lv_label_create(b);
         /* 🚨 Unnamed hosts show their address. A blank row cannot be chosen. */
         lv_label_set_text(t, s_hosts[i].name[0] ? s_hosts[i].name : sub);
-        lv_obj_set_style_text_font(t, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(t, &font_zh_18, 0);
         lv_obj_set_style_text_color(t, lv_color_hex(0xE8ECF0), 0);
         lv_obj_align(t, LV_ALIGN_LEFT_MID, 0, -11);
 
         lv_obj_t *s = lv_label_create(b);
-        lv_label_set_text(s, s_hosts[i].here ? "connected" : sub);
-        lv_obj_set_style_text_font(s, &lv_font_montserrat_14, 0);
+        lv_label_set_text(s, s_hosts[i].here ? "已连接" : sub);
+        lv_obj_set_style_text_font(s, &font_zh_14, 0);
         lv_obj_set_style_text_color(s, lv_color_hex(s_hosts[i].here ? 0x5BD48A : 0x8A93A6), 0);
         lv_obj_align(s, LV_ALIGN_LEFT_MID, 0, 12);
     }
 
     if (s_n == 0) {
         lv_obj_t *e = lv_label_create(s_list);
-        lv_label_set_text(e, "no paired host yet");
-        lv_obj_set_style_text_font(e, &lv_font_montserrat_16, 0);
+        lv_label_set_text(e, "还没有配对过的设备");
+        lv_obj_set_style_text_font(e, &font_zh_16, 0);
         lv_obj_set_style_text_color(e, lv_color_hex(0x6E7686), 0);
     } else {
         /* Release the pinned host so anything can pair — needed for a new device. */
@@ -175,8 +176,8 @@ static void show_list(void)
         lv_obj_set_style_shadow_width(b, 0, 0);
         lv_obj_add_event_cb(b, any_cb, LV_EVENT_CLICKED, NULL);
         lv_obj_t *t = lv_label_create(b);
-        lv_label_set_text(t, "accept any");
-        lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
+        lv_label_set_text(t, "接受任何设备");
+        lv_obj_set_style_text_font(t, &font_zh_16, 0);
         lv_obj_set_style_text_color(t, lv_color_hex(0x9AA4AE), 0);
         lv_obj_center(t);
     }
@@ -210,14 +211,14 @@ void host_pick_open(void)
     lv_obj_add_flag(s_scr, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *t = lv_label_create(s_scr);
-    lv_label_set_text(t, "Hosts");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_label_set_text(t, "设备");
+    lv_obj_set_style_text_font(t, &font_zh_20, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x8A93A6), 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, -186);
 
     lv_obj_t *h = lv_label_create(s_scr);
-    lv_label_set_text(h, "tap to switch  -  " LV_SYMBOL_EDIT " to name");
-    lv_obj_set_style_text_font(h, &lv_font_montserrat_14, 0);
+    lv_label_set_text(h, "轻点切换  -  " LV_SYMBOL_EDIT " 改名");
+    lv_obj_set_style_text_font(h, &font_zh_14, 0);
     lv_obj_set_style_text_color(h, lv_color_hex(0x5A5A66), 0);
     lv_obj_align(h, LV_ALIGN_CENTER, 0, 186);
 

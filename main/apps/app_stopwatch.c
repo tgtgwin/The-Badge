@@ -18,6 +18,7 @@
  * glyphs change. row_t below does that.
  */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include <stdio.h>
 #include <string.h>
@@ -119,7 +120,7 @@ static void row_color(row_t *r, uint32_t col)
         lv_obj_set_style_text_color(r->slot[i], lv_color_hex(col), 0);
 }
 
-/* The width of an eight-character row. Used to put "lap" to its left. */
+/* The width of an eight-character row. Used to put "计次" to its left. */
 static int row_width8(const row_t *r) { return 6 * r->dw + 2 * r->sw; }
 
 /* ── state ──────────────────────────────────────────────────── */
@@ -171,8 +172,8 @@ static void paint(void)
         if (s_lapword) lv_obj_add_flag(s_lapword, LV_OBJ_FLAG_HIDDEN);
     }
 
-    const char *h = s_run ? "tap to stop - hold to lap"
-                  : (ms ? "tap to go - hold to reset" : "tap to start");
+    const char *h = s_run ? "轻点停止 - 长按计次"
+                  : (ms ? "轻点继续 - 长按归零" : "轻点开始");
     lv_label_set_text(s_hint, h);
 
     row_color(&s_bigrow, s_run ? 0x5BD48A : (ms ? 0xE8C46B : 0x7FB0FF));
@@ -241,30 +242,30 @@ void stopwatch_build(lv_obj_t *root)
      * they do not crowd. */
     row_make(&s_bigrow, root, &lv_font_montserrat_48, 0, -26, 6, 0x7FB0FF);
 
-    /* The lap puts "lap" on the left with the digits to its right. A digit row
+    /* The lap puts "计次" on the left with the digits to its right. A digit row
      * is always eight cells, so the width is known and the two can be placed
-     * ahead of time — "lap" does not shift when the lap changes. */
+     * ahead of time — "计次" does not shift when the lap changes. */
     lv_point_t wsz;
-    lv_text_get_size(&wsz, "lap", &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, 0);
+    lv_text_get_size(&wsz, "计次", &font_zh_24, 0, 0, LV_COORD_MAX, 0);
     row_t probe;
     memset(&probe, 0, sizeof probe);
-    row_measure(&probe, &lv_font_montserrat_24, 3);
+    row_measure(&probe, &font_zh_24, 3);
     int numw = row_width8(&probe);
     int gap  = 14;
     int left = -(wsz.x + gap + numw) / 2;
 
     s_lapword = lv_label_create(root);
-    lv_label_set_text(s_lapword, "lap");
-    lv_obj_set_style_text_font(s_lapword, &lv_font_montserrat_24, 0);
+    lv_label_set_text(s_lapword, "计次");
+    lv_obj_set_style_text_font(s_lapword, &font_zh_24, 0);
     lv_obj_set_style_text_color(s_lapword, lv_color_hex(0x8A93A6), 0);
     lv_obj_align(s_lapword, LV_ALIGN_CENTER, left + wsz.x / 2, 46);
     lv_obj_add_flag(s_lapword, LV_OBJ_FLAG_HIDDEN);
 
-    row_make(&s_laprow, root, &lv_font_montserrat_24,
+    row_make(&s_laprow, root, &font_zh_24,
              left + wsz.x + gap + numw / 2, 46, 3, 0x8A93A6);
 
     s_hint = lv_label_create(root);
-    lv_obj_set_style_text_font(s_hint, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_hint, &font_zh_20, 0);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(0x5A5A66), 0);
     lv_obj_align(s_hint, LV_ALIGN_CENTER, 0, 122);
 

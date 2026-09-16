@@ -177,9 +177,7 @@ static void hostile_task(void *arg)
  * runs 150 times faster, and it has no IMU at all — so anything driven by
  * tilt had never once been tested there. */
 extern void games_debug_play_bricks(void);
-extern void games_debug_play_orb(void);
 extern void games_debug_tilt0(float *base, int *set);
-extern void orb_set_lon(float lon);
 #include <math.h>
 
 static void appbench_task(void *arg)
@@ -209,25 +207,11 @@ static void appbench_task(void *arg)
         ESP_LOGE(TAG, "** the reference is %.0f away from reality — the paddle will sit at one end", ay - base);
     vTaskDelay(pdMS_TO_TICKS(2000));
 
-    /* (2) water — frame time */
-    port_lock(); launcher_home(); port_unlock();
-    vTaskDelay(pdMS_TO_TICKS(600));
-    port_lock(); launcher_open(&app_water); port_unlock();
-    ESP_LOGW(TAG, "── water, 12 s ──");
-    vTaskDelay(pdMS_TO_TICKS(12000));
-
-    /* (3) the globe — frame time (kept spinning throughout) */
-    port_lock(); launcher_home(); port_unlock();
-    vTaskDelay(pdMS_TO_TICKS(600));
-    port_lock(); launcher_open(&app_games); port_unlock();
-    vTaskDelay(pdMS_TO_TICKS(400));
-    port_lock(); games_debug_play_orb(); port_unlock();
-    ESP_LOGW(TAG, "── globe, 12 s ──");
-    for (int i = 0; i < 12; i++) {
-        port_lock(); orb_set_lon((i % 10) * 0.1f); port_unlock();   /* keep it moving */
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-
+    /* 🚨 Water and the planets used to be timed here as well, because they were
+     * the two heaviest boards in the firmware and the only two whose arithmetic
+     * was the frame rate. Both are gone. Bricks is what is left, and it is the
+     * one that matters most: it is driven by tilt, and the simulator has no IMU
+     * at all, so this bench is the only place it is tested. */
     port_lock(); launcher_home(); port_unlock();
     ESP_LOGW(TAG, "════════ app bench end ════════");
     vTaskDelete(NULL);
@@ -276,7 +260,7 @@ static void btntest_task(void *arg)
         bool after = launcher_screen_is_off();
         uint32_t dn = port_boot_isr_count() - n0;
         snprintf(d, sizeof d, "display %s->%s, %lu interrupts",
-                 before ? "off" : "on", after ? "off" : "on", (unsigned long)dn);
+                 before ? "关" : "开", after ? "关" : "开", (unsigned long)dn);
         /* The interrupt should fire exactly once and the display state should
          * have flipped. Firing several times means the level interrupt ran away. */
         bt("BOOT press toggles the display", (after != before) && dn == 1, d);
@@ -463,7 +447,7 @@ static void selftest_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(1000));
         if (i % 15 == 0)
             ESP_LOGW(TAG, "[check] BLE %s  peer=%s  interval %d ms",
-                     port_hid_connected() ? "connected" : "advertising",
+                     port_hid_connected() ? "已连接" : "等待连接",
                      port_hid_peer() ? port_hid_peer() : "-",
                      port_hid_interval_ms());
         /* When connected, actually send reports. Watching with btmon from

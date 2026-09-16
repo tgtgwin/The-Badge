@@ -1,4 +1,5 @@
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include "display.h"
 #include "assets/assets.h"
@@ -9,9 +10,43 @@ static const char *TAG = "launcher";
 
 /* Screen diameter. It is round, so anything in a corner gets cut off. */
 #define SCREEN_D        466
-/* More apps means overlapping tiles. Shrink them to fit the count. */
-#define RING_R          (APP_CNT <= 4 ? 122 : (APP_CNT <= 5 ? 132 : 150))
-#define ICON_D          (APP_CNT <= 4 ? 126 : (APP_CNT <= 5 ? 120 : 92))
+/* 🚨 Both of these are now constants, and that is the point rather than a
+ * tidy-up.
+ *
+ * They used to be functions of how many apps the page held, because the ring
+ * has to shrink as it fills: six icons on one page came out at 92 px. The old
+ * author kept them at 120 by splitting the apps over two pages — the comment
+ * where the pages used to be said 92 px was hard to hit, and it was right.
+ *
+ * A constant size is what makes baking the icons possible. tools/mkassets.py
+ * bakes each icon at exactly ICON_D and the launcher draws it 1:1; anything
+ * else and LVGL resamples it through its transform path, which is a 2x2
+ * bilinear with no area averaging and shows up as a rough, grainy edge.
+ * 🚨 Change ICON_D here and mkassets.py has to be run again, or every icon is
+ * drawn at the wrong size. tools/regress.sh checks that the two agree.
+ *
+ * 🔢 These are the original sizes — 90 px icons on a 150 px ring with 18 px
+ *    names — and they are here on purpose rather than by not having got round to
+ *    changing them.
+ *
+ *    The larger pair that fits was worked out and tried: label 26 px, icon 104,
+ *    ring 138. It is measurably more readable — a Chinese glyph is 1.07 mm tall
+ *    at 18 px on a panel that is 376 to the inch, and 1.55 mm at 26 — but it is
+ *    also denser on a round screen, and on this badge the lighter ring reads
+ *    better than the legible one. So the artwork is small and the edges are
+ *    clean, which is where the sharpness was always going to come from.
+ *    If the names ever need to be read from across a table, the numbers above
+ *    are the ones to go back to.
+ *
+ *    🚨 Whatever they are set to, all four have to be solved together — icons
+ *    inside the circle, names inside the circle, names clear of the
+ *    *neighbouring* icons, and neighbours not touching. The third is the one
+ *    that is easy to miss: a name sits radially outside its own icon, so it
+ *    reaches sideways into the sector of the icons either side of it.
+ *    tools/regress.sh re-solves all four after every change, because the way
+ *    this fails is a name sliding off the edge of a round screen. */
+#define RING_R          150
+#define ICON_D          90
 
 static lv_obj_t          *s_home;
 static lv_obj_t          *s_batt;
@@ -43,8 +78,11 @@ void launcher_keep_awake_by(int who, bool on)
     s_awake_hold = (s_awake_bits != 0);
 }
 void launcher_keep_awake(bool on) { launcher_keep_awake_by(AWAKE_APP, on); }
-static lv_timer_t *s_idle;
-static lv_timer_t *s_rotate_timer, *s_heap_timer, *s_batt_timer;
+/* 🚨 Only these two keep a handle, and neither is for pausing. The rotate timer
+ * is paused on purpose (auto-rotate is off by default), and the battery label
+ * timer is deleted and rebuilt every time home is. The idle and heap timers
+ * need no handle at all now that going dark walks the whole list. */
+static lv_timer_t *s_rotate_timer, *s_batt_timer;
 static bool  s_autorotate = false;
 
 static int         s_timeout_s = 30;
@@ -58,41 +96,64 @@ static void screen_wake(void);
  * turned it off (pocket protection — see idle_cb). So there is no reason at
  * all to read touch while it is off. Stop.
  * This is nothing like as dangerous as light sleep. It only pauses timers and
- * starts them again, so the worst case is "touch is a beat late on wake". */
+ * starts them again, so the worst case is "touch is a beat late on wake".
+ *
+ * 🚨 Going dark pauses **every** LVGL timer, not the five the launcher happens
+ *    to know about. The old version paused its own and left every app's
+ *    running — and since almost every app is keep_awake = false, meaning "happy
+ *    to go dark", the timers that survived the dark were exactly the ones with
+ *    no reason to. The worst of them was a game's step timer: it wakes fifty
+ *    times a second with the panel off and nothing to draw onto.
+ *
+ * 🚨 Two kinds stay outside this, and both name themselves rather than being
+ *    listed here — which is what keeps the list from going stale:
+ *      · the port timers (see port.h) — the alarm, the battery journal, the
+ *        clock sync. They are not LVGL timers, so this walk cannot even see
+ *        them.
+ *      · an app whose badge_app_t sets timers_dark. That is the clock, and only
+ *        the clock: a countdown has to keep counting in a pocket.
+ *
+ * 🚨 Nothing may be left paused by accident. Only this file calls
+ *    lv_timer_pause / lv_timer_resume anywhere in the firmware, so "was already
+ *    paused before this ran" is exactly the launcher's own set. That is what
+ *    makes resuming everything and then re-pausing the one timer that wants it
+ *    enough, instead of keeping a snapshot of what was paused. It stops being
+ *    true the day another file starts pausing its own timers. */
 static void idle_timers(bool screen_on)
 {
-    /* 🚨 The big one: LVGL's refresh timer runs every 33 ms (30 a second)
+    /* The refresh timer is the big one: LVGL runs it every LV_DEF_REFR_PERIOD
      * whether or not anything needs drawing. With the display off there is
-     * nothing to draw, but it keeps waking the CPU — so light sleep pays the
-     * cost of entering and leaving without ever sleeping properly.
-     * Pausing it makes the longest remaining gap 200 ms (the button), which
-     * is deep enough to matter. */
-    lv_display_t *d = lv_display_get_default();
-    if (d) {
-        lv_timer_t *rt = lv_display_get_refr_timer(d);
-        if (rt) { if (screen_on) lv_timer_resume(rt); else lv_timer_pause(rt); }
-    }
-    /* Checking for idleness is meaningless while off — it is already off. */
-    if (s_idle) { if (screen_on) lv_timer_resume(s_idle); else lv_timer_pause(s_idle); }
+     * nothing to draw, but it keeps waking the CPU, so light sleep pays the
+     * cost of entering and leaving without ever sleeping properly. */
+    lv_display_t *d    = lv_display_get_default();
+    lv_timer_t   *refr = d ? lv_display_get_refr_timer(d) : NULL;
 
-    lv_indev_t *in = badge_display_indev();
-    if (in) {
-        lv_timer_t *rt = lv_indev_get_read_timer(in);
-        if (rt) {
-            if (screen_on) { lv_timer_resume(rt); lv_timer_set_period(rt, 12); }
-            else             lv_timer_pause(rt);
+    if (!screen_on && s_current && s_current->timers_dark) {
+        /* 🚨 An app that has to keep working in the dark. The redraw still
+         * stops: it is the most expensive timer there is, and there is nothing
+         * for it to draw onto a panel that is off. */
+        if (refr) lv_timer_pause(refr);
+        return;
+    }
+
+    for (lv_timer_t *t = lv_timer_get_next(NULL); t; t = lv_timer_get_next(t)) {
+        if (screen_on) lv_timer_resume(t);
+        else           lv_timer_pause(t);
+    }
+
+    if (screen_on) {
+        /* 🚨 Put back the one that was paused on purpose. Auto-rotate is off by
+         * default and there is no reason to wake every 200 ms for it. */
+        if (s_rotate_timer && !s_autorotate) lv_timer_pause(s_rotate_timer);
+        /* 🚨 And restore the touch read rate. Going dark pauses the read timer
+         * outright, and waking has to put it back to the 12 ms it runs at when
+         * somebody might be touching the glass — resuming alone would leave it
+         * at whatever period it was paused with. */
+        lv_indev_t *in = badge_display_indev();
+        if (in) {
+            lv_timer_t *rt = lv_indev_get_read_timer(in);
+            if (rt) lv_timer_set_period(rt, 12);
         }
-    }
-    if (s_rotate_timer) {
-        /* Auto-rotate is off by default, and there is no reason to wake every 200 ms for it. */
-        if (screen_on && s_autorotate) lv_timer_resume(s_rotate_timer);
-        else                           lv_timer_pause(s_rotate_timer);
-    }
-    if (s_heap_timer)  lv_timer_set_period(s_heap_timer,  screen_on ? 10000 : 120000);
-    if (s_batt_timer) {
-        /* No reason to repaint an invisible label every 20 seconds */
-        if (screen_on) lv_timer_resume(s_batt_timer);
-        else           lv_timer_pause(s_batt_timer);
     }
 }
 
@@ -180,8 +241,8 @@ void launcher_poweroff_notice(void)
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
 
     lv_obj_t *l = lv_label_create(o);
-    lv_label_set_text(l, "power off");
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_26, 0);
+    lv_label_set_text(l, "关机");
+    lv_obj_set_style_text_font(l, &font_zh_26, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(0x9A9A9E), 0);
     lv_obj_center(l);
 }
@@ -231,15 +292,28 @@ void launcher_screen_toggle(void)
     else        launcher_screen_off_manual();
 }
 
+/* The alarm's heartbeat — outside any app, and outside LVGL's timers.
+ *
+ * 🚨 The alarm has to ring with the Clock app closed and the display off, so it
+ *    cannot live on an LVGL timer: idle_timers() pauses every one of those the
+ *    moment the panel goes dark, and a badge in a pocket is the case this
+ *    exists for.
+ *    It used to be a line inside idle_cb() below, whose own comment said it had
+ *    to be checked "with the display off" while the code did the opposite —
+ *    s_idle is paused by idle_timers(false), so alarm_tick() stopped being
+ *    called the instant the screen went off. Only a pass asking "what is still
+ *    running in the dark?" turns that up.
+ *    See port.h for why this is a port timer rather than an esp_timer here. */
+static void alarm_tick_cb(void *arg)
+{
+    (void)arg;
+    alarm_tick();
+}
+
 static void idle_cb(lv_timer_t *t)
 {
     (void)t;
-    /* 🚨 The alarm lives outside its app. It has to ring with the Clock app
-     * closed and with the display off, so it is checked here every second
-     * rather than there.
-     * It has to sit **above** the early returns below — with the display off
-     * (s_veil) nothing further down is reached. */
-    alarm_tick();
+    /* The alarm is not checked here any more — see alarm_tick_cb above. */
     if (s_timeout_s <= 0 || s_veil) return;
     /* With the display off the veil blocks touch, which kills the mouse
      * outright. It is also used while looking at another screen, so idle time
@@ -256,28 +330,31 @@ static void idle_cb(lv_timer_t *t)
 void launcher_set_timeout(int seconds) { s_timeout_s = seconds; }
 int  launcher_get_timeout(void)        { return s_timeout_s; }
 
-/* Home is two pages. Six icons on one page shrinks them to 92 px, which is
- * hard to hit; split in two they are 120 px. Only redrawn when you turn the
- * page, so sitting still costs nothing. */
-static const badge_app_t *const s_page0[] = { &app_games, &app_orb, &app_water,
-                                              &app_air, &app_clock, &app_calc };
-static const badge_app_t *const s_page1[] = { &app_mouse, &app_keys, &app_meet };
-#define PAGE_N 2
-static const badge_app_t *const *const s_pages[PAGE_N] = { s_page0, s_page1 };
-static const uint8_t s_page_cnt[PAGE_N] = {
-    (uint8_t)(sizeof(s_page0) / sizeof(s_page0[0])),
-    (uint8_t)(sizeof(s_page1) / sizeof(s_page1[0])),
+/* One page, six icons, in the order the ring draws them — the first sits at the
+ * top and they run clockwise.
+ *
+ * 🚨 There were two pages and they were a size workaround, not a design. Six
+ * icons on one page came out at 92 px; splitting them 6+3 made them 120. The
+ * app set is smaller now — the water and the planets are gone and the two mouse
+ * entries are one app — so six is the whole set and they fit on one page.
+ *
+ * 🚨 The sideways-swipe machinery went with the pages, and the reason it was
+ *    so awkward is worth keeping: a swiped gesture in LVGL goes only to the
+ *    object that was pressed, so it needs GESTURE_BUBBLE rather than
+ *    EVENT_BUBBLE to reach the screen; and a scrollable screen takes the swipe
+ *    as a scroll and never delivers it at all. Three conditions, and missing
+ *    any one is a silent no-op. If pages ever come back, measure where the
+ *    finger landed and lifted instead. */
+static const badge_app_t *const s_apps[] = {
+    &app_games, &app_mouse, &app_clock, &app_calc, &app_meet, &app_keys,
 };
-static uint8_t s_page;          /* the page being shown */
+#define APP_CNT (sizeof(s_apps) / sizeof(s_apps[0]))
 
-#define s_apps   (s_pages[s_page])
-#define APP_CNT  ((size_t)s_page_cnt[s_page])
+static port_timer_t *s_ble_off_timer;
 
-static lv_timer_t *s_ble_off_timer;
-
-static void ble_off_cb(lv_timer_t *t)
+static void ble_off_cb(void *arg)
 {
-    (void)t;
+    (void)arg;
     s_ble_off_timer = NULL;
     port_hid_stop();
 }
@@ -297,21 +374,30 @@ static void radio_apply(radio_need_t need)
      * out of an app is unusable. There is a 45-second grace period, and
      * re-entering a BLE app within it cancels the whole thing. */
     if (need == RADIO_BLE) {
-        if (s_ble_off_timer) { lv_timer_delete(s_ble_off_timer); s_ble_off_timer = NULL; }
+        if (s_ble_off_timer) { port_timer_stop(s_ble_off_timer); s_ble_off_timer = NULL; }
         port_hid_start();
     } else if (!s_ble_off_timer) {
-        s_ble_off_timer = lv_timer_create(ble_off_cb, 45000, NULL);
-        lv_timer_set_repeat_count(s_ble_off_timer, 1);
+        /* 🚨 A port timer: the grace period has to expire whether or not the
+         * display is on. Dip into a BLE app, press the power button, and an
+         * LVGL timer here would leave the radio up until you next looked at the
+         * badge — which is the wrong way round for a power saving. */
+        s_ble_off_timer = port_timer_start("bleoff", 45000, false, ble_off_cb, NULL);
     }
 }
 
 
 /* The battery journal. The badge writes this itself so that a night left with
  * the display off still leaves a record — with no cable there is nowhere for
- * serial logs to go. */
-static void batt_log_cb(lv_timer_t *t)
+ * serial logs to go.
+ *
+ * 🚨 A port timer rather than an LVGL one, and this is the function that proves
+ *    the point of having them: its whole reason for existing is the night with
+ *    the display off, which is precisely when an LVGL timer would be paused. It
+ *    used to be an LVGL timer that ran on regardless only because its handle
+ *    was never saved — surviving by accident, not by design. */
+static void batt_log_cb(void *arg)
 {
-    (void)t;
+    (void)arg;
     port_battery_log(s_veil ? "idle-off" : "idle-on");
     port_imu_idle_check();
 
@@ -335,9 +421,12 @@ static void batt_log_cb(lv_timer_t *t)
     port_uptime_mark();
 }
 
-static void housekeep_cb(lv_timer_t *t)
+/* 🚨 A port timer for the same reason as the journal above: this exists to
+ *    resync a clock after a day out, and a day out is spent with the display
+ *    off. An LVGL timer would only resync it while somebody was looking. */
+static void housekeep_cb(void *arg)
 {
-    (void)t;
+    (void)arg;
     if (port_rec_active()) return;      /* leave it alone while recording */
     /* 🚨 The clock is handled here too. It used to be set once at boot, and
      * only when there was no time at all — so once set it was never set
@@ -347,64 +436,11 @@ static void housekeep_cb(lv_timer_t *t)
     port_time_autosync();
 }
 
-/* ── turning pages ────────────────────────────────────────────
- * 🚨 LVGL gestures were tried and abandoned. A gesture only goes to the
- * object that was pressed; sending it upward needs GESTURE_BUBBLE rather than
- * EVENT_BUBBLE; and if the screen can scroll, the swipe is taken as a scroll
- * and never delivered at all. Three conditions, and missing any one of them
- * means nothing happens, silently (three wrong guesses in a row).
- * Measuring where the finger landed and where it lifted has none of that. A
- * large sideways movement turns the page, and that press does not open an app. */
-#define SWIPE_PX 60
 static void build_home(void);
 void launcher_show_home(void);
-static int32_t s_press_x;
-static bool    s_swiped;
-
-static void home_press_cb(lv_event_t *e)
-{
-    (void)e;
-    lv_indev_t *in = lv_indev_active();
-    lv_point_t p = { 0, 0 };
-    if (in) lv_indev_get_point(in, &p);
-    s_press_x = p.x;
-    s_swiped = false;
-}
-
-/* Returns true if the page turned — the caller must then not open an app */
-static bool home_release_check(void)
-{
-    lv_indev_t *in = lv_indev_active();
-    lv_point_t p = { 0, 0 };
-    if (in) lv_indev_get_point(in, &p);
-    int32_t dx = p.x - s_press_x;
-    if (dx > -SWIPE_PX && dx < SWIPE_PX) return false;
-    uint8_t was = s_page;
-    if (dx < 0) s_page = (uint8_t)((s_page + 1) % PAGE_N);
-    else        s_page = (uint8_t)((s_page + PAGE_N - 1) % PAGE_N);
-    s_swiped = true;
-    if (was != s_page) {
-        /* 🚨 launcher_show_home() only re-shows a screen that already exists.
-         * A page change means different tiles, so home has to be rebuilt —
-         * otherwise the internal value changes and the screen does not. */
-        lv_obj_t *old = s_home;
-        build_home();
-        lv_screen_load_anim(s_home, LV_SCR_LOAD_ANIM_FADE_IN, 160, 0, false);
-        if (old) lv_obj_delete_delayed(old, 400);   /* clean it up after the transition */
-    }
-    return true;
-}
-
-static void home_swipe_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED) { home_press_cb(e); return; }
-    home_release_check();
-}
 
 static void app_btn_cb(lv_event_t *e)
 {
-    /* If this was a sideways swipe that turned the page, do not open an app */
-    if (home_release_check()) return;
     launcher_open((const badge_app_t *)lv_event_get_user_data(e));
 }
 
@@ -483,7 +519,7 @@ static void rotate_poll(lv_timer_t *t)
 static void heap_cb(lv_timer_t *t)
 {
     (void)t;
-    port_heap_report(s_current ? s_current->name : "idle");
+    port_heap_report(s_current ? s_current->name : "空闲");
 }
 
 static void batt_refresh(lv_timer_t *t)
@@ -534,7 +570,6 @@ static void batt_refresh(lv_timer_t *t)
 static void settings_cb(lv_event_t *e)
 {
     (void)e;
-    if (home_release_check()) return;
     launcher_open(&app_settings);
 }
 
@@ -549,8 +584,8 @@ static void build_home(void)
     /* The wallpaper is drawn, not stored — see nightsky.h. */
     nightsky_create(s_home);
 
-    /* Apps 120 degrees apart. The icons are the app's own screen shrunk down,
-     * which says what it is far faster than a glyph. */
+    /* Evenly around the ring, the first at the top. The icons are the app's own
+     * screen shrunk down, which says what it is far faster than a glyph. */
     for (size_t i = 0; i < APP_CNT; i++) {
         const badge_app_t *a = s_apps[i];
         float ang = (float)(-M_PI / 2.0 + i * (2.0 * M_PI / APP_CNT));
@@ -560,55 +595,47 @@ static void build_home(void)
         lv_obj_t *tile = lv_image_create(s_home);
         lv_image_set_src(tile, a->art);
         lv_obj_set_size(tile, ICON_D, ICON_D);
-    lv_image_set_scale(tile, ICON_D * 256 / 120);   /* scale the 120 px source to fit */
-        lv_image_set_pivot(tile, 60, 60);
+        /* 🚨 256 is LV_SCALE_NONE and it has to be exactly that. Anything else
+         * — 196 for a 92 px icon, 192 for 90 — takes LVGL's transform path,
+         * which resamples the icon a pixel at a time with a 2x2 bilinear and no
+         * area averaging. That is what made the icons look grainy, and it was
+         * never the artwork's fault. The source is baked at ICON_D, so there is
+         * nothing to scale. */
+        lv_image_set_scale(tile, 256);
+        /* The pivot is in source coordinates, so it follows ICON_D: half of it. */
+        lv_image_set_pivot(tile, ICON_D / 2, ICON_D / 2);
         lv_obj_align(tile, LV_ALIGN_CENTER, x, y);
         lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-        /* 🚨 A gesture only goes to the object that was pressed. Swiping over
-         * an icon means the icon takes it, the screen never sees it, and the
-         * page does not turn.
-         * LVGL has a separate flag just for gestures — GESTURE_BUBBLE, not
-         * EVENT_BUBBLE. With that, presses still go to the icon and only
-         * swipes travel up to the screen. */
-        lv_obj_add_event_cb(tile, home_press_cb, LV_EVENT_PRESSED, NULL);
         lv_obj_add_event_cb(tile, app_btn_cb, LV_EVENT_RELEASED, (void *)a);
 
-        /* LVGL's built-in font has no bold, so it is drawn twice one pixel
-         * apart. The background is a photo, so a dark shadow underneath lifts
-         * the text off it. */
-        int ny = y + ICON_D / 2 + 21;
-        for (int k = 0; k < 3; k++) {
-            static const int8_t OX[3] = { 1, 0, 1 };
-            static const int8_t OY[3] = { 2, 0, 0 };
-            lv_obj_t *nm = lv_label_create(s_home);
-            lv_label_set_text(nm, a->name);
-            lv_obj_set_style_text_font(nm, APP_CNT <= 5 ? &lv_font_montserrat_20
-                                                        : &lv_font_montserrat_16, 0);
-            lv_obj_set_style_text_color(nm, k == 0 ? lv_color_black() : lv_color_hex(0xF2F5F8), 0);
-            lv_obj_set_style_text_opa(nm, k == 0 ? 150 : LV_OPA_COVER, 0);
-            lv_obj_align(nm, LV_ALIGN_CENTER, x + OX[k], ny + OY[k]);
-        }
+        /* 🚨 One label, not three. This used to draw the same text three times
+         * at (1,2), (0,0) and (1,0) to fake a bold face, and the offsets
+         * disagree between the two axes — which is why the names came out
+         * smudged rather than bold. tools/mkfonts.py bakes a real bold instead.
+         *
+         * 🔢 18 px, which is small: on a panel 376 to the inch that is a
+         *    1.07 mm glyph, and Chinese wants roughly twice that. It is a
+         *    deliberate trade rather than an oversight — see RING_R above for
+         *    the larger pair and what it costs.
+         *
+         * 🚨 And it is a *bold* face at 8 bits per pixel, both of which matter
+         *    more at 18 px than they would at 26: a Chinese glyph this size is
+         *    mostly one-pixel strokes, and four bits of grey is sixteen levels
+         *    to draw each of those edges with. Below twenty pixels eight bits is
+         *    the difference between text and a smudge — tools/mkfonts.py bakes
+         *    it and tools/regress.sh checks that this size has a bold face. */
+        int ny = y + ICON_D / 2 + 18;
+        lv_obj_t *nm = lv_label_create(s_home);
+        lv_label_set_text(nm, a->name);
+        lv_obj_set_style_text_font(nm, &font_zh_18_bold, 0);
+        lv_obj_set_style_text_color(nm, lv_color_hex(0xF2F5F8), 0);
+        lv_obj_align(nm, LV_ALIGN_CENTER, x, ny);
     }
 
-    /* Page dots — how many pages there are and which one this is. Two dots is enough. */
-    for (int k = 0; k < PAGE_N; k++) {
-        lv_obj_t *d = lv_obj_create(s_home);
-        lv_obj_remove_style_all(d);
-        lv_obj_set_size(d, 8, 8);
-        lv_obj_set_style_radius(d, 4, 0);
-        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(d, lv_color_hex(k == s_page ? 0xE8ECF0 : 0x4A4A52), 0);
-        lv_obj_align(d, LV_ALIGN_CENTER, (k - (PAGE_N - 1) * 0.5f) * 18, 196);
-    }
-
-    /* Swipe sideways to turn the page.
-     * 🚨 Screens are scrollable by default, so LVGL takes the swipe as a
-     * scroll and never emits the gesture at all (it returns on the first line
-     * of indev_gesture). Turning scrolling off is what lets the gesture through. */
+    /* 🚨 Still turned off even though there is nothing left to scroll. Screens
+     * are scrollable by default, and leaving it on hands every drag across the
+     * ring to the scroll machinery. */
     lv_obj_remove_flag(s_home, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_home, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_home, home_swipe_cb, LV_EVENT_PRESSED,  NULL);
-    lv_obj_add_event_cb(s_home, home_swipe_cb, LV_EVENT_RELEASED, NULL);
 
     /* Settings is the gear in the middle. A ninth app tile would unbalance the ring. */
     lv_obj_t *gear = lv_image_create(s_home);
@@ -618,13 +645,12 @@ static void build_home(void)
     lv_obj_set_ext_click_area(gear, 22);
     lv_obj_center(gear);
     lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(gear, home_press_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(gear, settings_cb, LV_EVENT_RELEASED, NULL);
 
     /* Battery — an icon would only take up room. One number is enough, and
      * directly under the gear it is not in the way. */
     s_batt = lv_label_create(s_home);
-    lv_obj_set_style_text_font(s_batt, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_batt, &font_zh_20, 0);
     lv_obj_align(s_batt, LV_ALIGN_CENTER, 0, 44);
     s_prev_p = -2;              /* new label, so write it at least once */
     batt_refresh(NULL);
@@ -909,14 +935,25 @@ void launcher_start(void)
     lock_start();
     lv_screen_load_anim(lk, LV_SCR_LOAD_ANIM_FADE_IN, 260, 0, true);
     port_home_button_start(launcher_home);
-    s_idle = lv_timer_create(idle_cb, 1000, NULL);
-    s_heap_timer   = lv_timer_create(heap_cb, 10000, NULL);
+    lv_timer_create(idle_cb, 1000, NULL);
+    lv_timer_create(heap_cb, 10000, NULL);
     s_rotate_timer = lv_timer_create(rotate_poll, 200, NULL);
     if (!s_autorotate) lv_timer_pause(s_rotate_timer);   /* off by default */
-    lv_timer_create(batt_log_cb, 60000, NULL);   /* once a minute; the journal writes every five */
-    /* Once 30 s after boot, then every 30 minutes. Coming home puts you inside that window. */
-    lv_timer_t *up = lv_timer_create(housekeep_cb, 30000, NULL);
-    lv_timer_set_repeat_count(up, 1);
-    lv_timer_create(housekeep_cb, 30 * 60 * 1000, NULL);
 
+    /* ── the port timers, which keep running with the display off ──
+     * 🚨 Every one of these used to be an LVGL timer, and every one of them has
+     *    to work while the panel is dark — which is exactly when an LVGL timer
+     *    stops. Two of them survived by accident (nothing had saved their
+     *    handles to pause); the alarm did not, and stopped ringing in a pocket.
+     *    See port.h for the rule and why the capability is behind the seam. */
+
+    /* The alarm, checked every second, from outside its app: it has to ring
+     * with the Clock app closed and the display off. */
+    port_timer_start("alarm", 1000, true, alarm_tick_cb, NULL);
+    /* The battery journal. Once a minute; the journal itself writes every five. */
+    port_timer_start("battlog", 60000, true, batt_log_cb, NULL);
+    /* Once 30 s after boot, then every 30 minutes. Coming home puts you inside
+     * that window. */
+    port_timer_start("keep0", 30000, false, housekeep_cb, NULL);
+    port_timer_start("keep1", 30 * 60 * 1000, true, housekeep_cb, NULL);
 }

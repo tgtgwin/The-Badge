@@ -8,6 +8,7 @@
  * Unlike Apple's Touch Bar: that took away physical F keys people already had,
  * and was hated for it. This adds ones that were never there. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
 #include <math.h>
@@ -37,18 +38,18 @@ typedef struct {
 
 /* The ones Excel reaches for most. The order runs clockwise from 12 o'clock. */
 static const key_t KEYS[] = {
-    { "F4",  0,         K_F4,   "absolute ref" },
-    { "F2",  0,         K_F2,   "edit cell" },
-    { "F5",  0,         K_F5,   "go to" },
-    { "F12", 0,         K_F12,  "save as" },
-    { "Esc", 0,         K_ESC,  "cancel" },
+    { "F4",  0,         K_F4,   "绝对引用" },
+    { "F2",  0,         K_F2,   "编辑单元格" },
+    { "F5",  0,         K_F5,   "定位" },
+    { "F12", 0,         K_F12,  "另存为" },
+    { "Esc", 0,         K_ESC,  "取消" },
     { "Tab", 0,         K_TAB,  "" },
     { "Ent", 0,         K_ENT,  "" },
-    { "^;",  MOD_CTRL,  K_SEMI, "today" },
-    { "^[",  MOD_CTRL,  K_LBRK, "trace prec" },
+    { "^;",  MOD_CTRL,  K_SEMI, "今天" },
+    { "^[",  MOD_CTRL,  K_LBRK, "追踪引用" },
     { "Del", 0,         K_DEL,  "" },
-    { "F1",  0,         K_F1,   "help" },
-    { "^F4", MOD_CTRL,  K_F4,   "close" },
+    { "F1",  0,         K_F1,   "帮助" },
+    { "^F4", MOD_CTRL,  K_F4,   "关闭" },
 };
 #define KEY_CNT (sizeof(KEYS) / sizeof(KEYS[0]))
 
@@ -85,7 +86,7 @@ static void poll_cb(lv_timer_t *t)
     if (now == s_prev) return;
     s_prev = now;
     bool on = port_hid_connected();
-    lv_label_set_text(s_state, on ? "" : "not connected");
+    lv_label_set_text(s_state, on ? "" : "未连接");
     lv_obj_set_style_text_color(s_state, lv_color_hex(0xE0B33A), 0);
 }
 
@@ -108,18 +109,18 @@ static void fkeys_build(lv_obj_t *root)
 
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, KEYS[i].label);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(l, &font_zh_20, 0);
         lv_obj_center(l);
     }
 
     s_hint = lv_label_create(root);
-    lv_label_set_text(s_hint, "Excel keys");
-    lv_obj_set_style_text_font(s_hint, &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_hint, "Excel 按键");
+    lv_obj_set_style_text_font(s_hint, &font_zh_20, 0);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(0xE8ECF0), 0);
     lv_obj_align(s_hint, LV_ALIGN_CENTER, 0, -12);
 
     s_state = lv_label_create(root);
-    lv_obj_set_style_text_font(s_state, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_state, &font_zh_16, 0);
     lv_obj_align(s_state, LV_ALIGN_CENTER, 0, 20);
 
     s_poll = lv_timer_create(poll_cb, 500, NULL);
@@ -154,7 +155,7 @@ static void leave(void)
 static lv_color_t tint(void) { return lv_color_hex(0x8AB4F8); }
 
 const badge_app_t app_keys = {
-    .name = "Keys", .art = &app_icon_keys, .icon = LV_SYMBOL_KEYBOARD, .tint = tint,
+    .name = "按键", .art = &app_icon_keys, .icon = LV_SYMBOL_KEYBOARD, .tint = tint,
     /* This app is used while looking at it, so there is little ground for
      * holding the screen on indefinitely. Going dark after 30 seconds is one
      * press of PWR away — on versus off is 124 mV an hour. */

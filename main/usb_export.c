@@ -4,7 +4,7 @@
  * drive. Press done and you get the serial port back.
  *
  * 🚨 How recordings are stored does not change. The 24 MB partition has no
- * filesystem; audio is appended and that is the right shape for it. Putting a
+ * filesystem; audio is sequential and that is the right shape for it. Putting a
  * real FAT there would throw that away and take every existing recording with
  * it. So this *pretends* to be FAT, and only while the host is reading: the
  * boot sector, the allocation table and the root directory are made up on the
@@ -15,9 +15,17 @@
  * accepts that quietly, and we never write a single write path. Deleting
  * happens on the badge.
  *
- * A bonus falls out of making up the bytes: a **48-byte WAV header** can be
- * prepended. The files show up as REC0001.WAV and play on a double click.
- * IMA-ADPCM is a real WAV format (0x11), so nothing is converted.
+ * A bonus falls out of making up the bytes: a WAV header can be prepended. The
+ * files show up as REC0001.WAV and play on a double click. IMA-ADPCM is a real
+ * WAV format (0x11), so nothing is converted.
+ *
+ * 🚨 The header is **60 bytes**, with a fact chunk, and it comes from
+ * adpcm_wav_header() — the same one the server writes. There used to be a
+ * second, hand-rolled 48-byte copy in this file whose RIFF length said
+ * `36 + data`, which is the formula for a 44-byte PCM header. It was four
+ * bytes short, so anything that trusted it (rather than the data chunk length,
+ * which ffmpeg and VLC do) read the file as corrupt. Two copies of a format
+ * definition is one too many; this file no longer has its own.
  *
  * 🚨 On the S3, USB-Serial/JTAG and USB-OTG are separate peripherals sharing
  * the same pins. While TinyUSB holds them the serial port is gone. Even if
@@ -27,8 +35,11 @@
  */
 #include "usb_export.h"
 #include "rec_export.h"
+#include "adpcm.h"
+#include "port.h"
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 /* ── the shape of the volume ────────────────────────────────
  * FAT16, 512-byte sectors. Covering 24 MB wants large clusters, because that
@@ -43,11 +54,11 @@
 #define ROOT_ENTS    16u                    /* at most 12 recordings */
 #define ROOT_SEC     ((ROOT_ENTS * 32u) / SEC)      /* = 1 */
 
-/* 🚨 An IMA-ADPCM WAV header is 48 bytes, not 44. Its fmt chunk body is 20
- * bytes rather than 16 (samples-per-block is carried too), so everything
- * after it shifts. Assume 44 and the data size lands outside the header,
- * which makes the file unopenable rather than merely wrong. */
-#define WAV_HDR      48u
+/* 🚨 An IMA-ADPCM WAV header is 60 bytes, not 44: its fmt chunk body is 20
+ * bytes rather than 16 (samples-per-block is carried too), and there is a fact
+ * chunk. Assume 44 and the data size lands outside the header, which makes the
+ * file unopenable rather than merely wrong. */
+#define WAV_HDR      ADPCM_WAV_HEADER_BYTES
 
 /* Clusters in the volume: 24 MB / 32 KB = 768 */
 #define DATA_CLUSTERS 768u
@@ -62,8 +73,9 @@
  * One recording, one file. Clusters are handed out in order. */
 typedef struct {
     char     name[12];        /* 8.3, space padded */
-    uint32_t src_off;         /* data start, relative to the partition */
+    uint64_t src_off;         /* data start, absolute on the ring */
     uint32_t bytes;           /* ADPCM bytes */
+    int64_t  started;         /* unix seconds; 0 if the clock was not set */
     uint32_t first_clus;
     uint32_t clus_n;
 } xfile_t;
@@ -84,6 +96,7 @@ void usb_export_build(void)
         snprintf(s_f[i].name, sizeof s_f[i].name, "REC%04dWAV", i + 1);
         s_f[i].src_off = list[i].off;
         s_f[i].bytes   = list[i].bytes;
+        s_f[i].started = list[i].started;
         s_f[i].first_clus = clus;
         uint32_t tot = file_total(&s_f[i]);
         s_f[i].clus_n = (tot + (CLUSTER_SEC * SEC) - 1) / (CLUSTER_SEC * SEC);
@@ -163,35 +176,35 @@ static void root_sector(uint8_t *b)
     for (int i = 0; i < s_n && (uint32_t)(i + 1) < ROOT_ENTS; i++, e += 32) {
         memcpy(e, s_f[i].name, 11);
         e[11] = 0x01;                        /* read only */
-        /* No timestamps. Each recording has one, but getting it to agree with
-         * FAT's local-time rules is work, and a blank field beats a wrong
-         * date. */
+
+        /* 🚨 FAT keeps local time, so the stored offset has to be applied or
+         * every file is stamped with the time zone away from the clock. The
+         * clock is only written when SNTP answered, so a badge that was never
+         * synced has started == 0 and gets a blank stamp — a blank field beats
+         * a confident 1970. */
+        if (s_f[i].started > 0) {
+            time_t t = (time_t)(s_f[i].started + (int64_t)port_get_tz_offset() * 60);
+            struct tm tm;
+            if (gmtime_r(&t, &tm) && tm.tm_year + 1900 >= 1980) {
+                uint16_t d = (uint16_t)(((tm.tm_year + 1900 - 1980) << 9) |
+                                        ((tm.tm_mon + 1) << 5) | tm.tm_mday);
+                uint16_t m = (uint16_t)((tm.tm_hour << 11) | (tm.tm_min << 5) |
+                                        (tm.tm_sec / 2));
+                put16(e + 22, m);
+                put16(e + 24, d);
+            }
+        }
+
         put16(e + 26, (uint16_t)s_f[i].first_clus);
         put32(e + 28, file_total(&s_f[i]));
     }
 }
 
-/* IMA-ADPCM WAV header. 🚨 Block alignment has to match what was stored. */
+/* The WAV header, from the one implementation the firmware and the server
+ * share. 🚨 Block alignment has to match what was stored. */
 static void wav_header(const xfile_t *f, uint8_t *b)
 {
-    uint32_t data = f->bytes;
-    uint32_t blk  = REC_ADPCM_BLOCK_BYTES;
-    uint32_t spb  = REC_ADPCM_BLOCK_SAMPLES;
-    memset(b, 0, WAV_HDR);
-    memcpy(b, "RIFF", 4);
-    put32(b + 4, 36 + data);
-    memcpy(b + 8, "WAVEfmt ", 8);
-    put32(b + 16, 20);                       /* fmt size (20 for ADPCM) */
-    put16(b + 20, 0x0011);                   /* IMA ADPCM */
-    put16(b + 22, 1);                        /* mono */
-    put32(b + 24, REC_SAMPLE_RATE);
-    put32(b + 28, REC_SAMPLE_RATE * blk / spb);
-    put16(b + 32, (uint16_t)blk);
-    put16(b + 34, 4);                        /* bits per sample */
-    put16(b + 36, 2);                        /* extra size */
-    put16(b + 38, (uint16_t)spb);
-    memcpy(b + 40, "data", 4);
-    put32(b + 44, data);
+    (void)adpcm_wav_header(b, f->bytes, REC_SAMPLE_RATE);
 }
 
 /* ── the host reads ─────────────────────────────────────────── */
@@ -211,7 +224,7 @@ bool usb_export_read(uint32_t lba, uint8_t *out)
             continue;
         uint32_t pos = (clus - s_f[i].first_clus) * (CLUSTER_SEC * SEC) + in_clus;
         uint32_t done = 0;
-        /* First 48 bytes are the WAV header, the rest is the recording */
+        /* The first WAV_HDR bytes are the header, the rest is the recording */
         if (pos < WAV_HDR) {
             uint8_t h[WAV_HDR];
             wav_header(&s_f[i], h);

@@ -24,6 +24,43 @@ void port_radio_set(int need);
 uint32_t port_micros(void);
 void     port_delay_us(uint32_t us);
 
+/* ── timers that do not stop when the display does ──────────────
+ * LVGL's timers are paused along with the display (see idle_timers in
+ * launcher.c). That is right for anything that exists to draw something, and
+ * wrong for anything that has to happen anyway: an alarm has to ring in a
+ * pocket, the battery journal has to cover a night with the screen off, and a
+ * badge with no RTC has to resync after a day away from its WiFi.
+ *
+ * 🚨 Why this lives here and not as an esp_timer inside launcher.c. launcher.c
+ *    is shared with the simulator, and the simulator has no esp_timer — port.h
+ *    is the only thing both sides have. So the capability belongs behind the
+ *    seam like every other difference between the board and the PC.
+ *
+ * On the board this is esp_timer: backed by the hardware timer, and its
+ * schedule survives light sleep, which is what makes a one-second alarm tick
+ * viable at all. The simulator has neither light sleep nor esp_timer, so it
+ * walks the same list whenever its virtual clock moves. That reproduces the one
+ * property the interface relies on — these do not stop when the display does.
+ *
+ * 🚨 Keep this list short. Every entry is a reason for the CPU to wake up, and
+ *    the reason they are separate from LVGL is that they must. */
+typedef void (*port_timer_fn)(void *arg);
+typedef struct port_timer port_timer_t;
+
+/* Fires every `period_ms`. With `repeat` false it fires once and then reports
+ * itself finished, and the handle must be treated as gone.
+ * Returns NULL when there is no room — the caller has to cope, not assume. */
+port_timer_t *port_timer_start(const char *name, uint32_t period_ms, bool repeat,
+                               port_timer_fn fn, void *arg);
+/* Safe on NULL, and safe to call from inside the timer's own callback. */
+void port_timer_stop(port_timer_t *t);
+/* How many are running. For the journal and for tests. */
+int  port_timer_count(void);
+
+/* Moves the simulator's timers along. The board has nothing to do — esp_timer
+ * calls back on its own — so there it is empty. */
+void port_timer_pump(void);
+
 /* Large buffers (canvases and the like). On the board these come from PSRAM. */
 void *port_big_alloc(size_t n);
 void  port_big_free(void *p);
@@ -185,6 +222,22 @@ bool     port_rec_active(void);
 uint32_t port_rec_seconds(void);       /* length of the current recording (s) */
 uint32_t port_rec_free_seconds(void);  /* how many more seconds will fit */
 int      port_rec_pending(void);       /* recordings still on the device */
+
+/* ── holding it, and watching it ─────────────────────────────
+ * 🚨 A pause and a meter, because a recording you cannot trust is worse than no
+ *    recording. Without the meter there is no way to tell a silent microphone
+ *    from a silent room until you play the file back, which in a meeting is far
+ *    too late. Without the pause the choice on a break is between recording the
+ *    corridor and losing the meeting — and stop-then-start leaves two files
+ *    where the meeting was one. */
+void     port_rec_pause(bool on);      /* no effect if not recording */
+bool     port_rec_paused(void);
+
+/* How loud the microphone is hearing, 0-100, smoothed. 0 when not recording.
+ * 🚨 This is not the raw block level: it is on a dB scale, because speech at a
+ *    comfortable volume is about a tenth of full scale and a linear meter would
+ *    spend nine tenths of its length on levels nobody uses. */
+int      port_rec_level(void);
 
 /* Battery voltage (mV). The AXP2101 gives voltage but not current. */
 int  port_battery_mv(void);

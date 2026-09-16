@@ -1,6 +1,7 @@
 /* The timer. One of the things a round screen does best — the time left is
  * watched as a shrinking ring rather than read as a number. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
 
@@ -39,8 +40,8 @@ static void paint(void)
     }
     lv_label_set_text_fmt(s_time, "%d:%02d", s_left / 60, s_left % 60);
 
-    const char *h = s_left == 0 ? (s_beep_i >= 0 ? "tap to stop" : "done")
-                  : (s_running ? "tap to pause" : "tap to start - hold to reset");
+    const char *h = s_left == 0 ? (s_beep_i >= 0 ? "轻点停止" : "完成")
+                  : (s_running ? "轻点暂停" : "轻点开始 - 长按归零");
     lv_label_set_text(s_hint, h);
 
     lv_color_t c = s_left == 0 ? lv_color_hex(0xFF6B6B)
@@ -158,7 +159,7 @@ static void dial_cb(lv_event_t *e)
     s_left  = s_total;
     beep_stop();
     lv_label_set_text_fmt(s_time, "%d:%02d", s_left / 60, s_left % 60);
-    lv_label_set_text(s_hint, "tap to start");
+    lv_label_set_text(s_hint, "轻点开始");
 }
 
 static void preset_cb(lv_event_t *e)
@@ -211,7 +212,7 @@ void timer_build(lv_obj_t *root)
     lv_obj_align(s_time, LV_ALIGN_CENTER, 0, -30);
 
     s_hint = lv_label_create(root);
-    lv_obj_set_style_text_font(s_hint, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_hint, &font_zh_16, 0);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(0x6E6E72), 0);
     lv_obj_align(s_hint, LV_ALIGN_CENTER, 0, 18);
 
@@ -225,7 +226,7 @@ void timer_build(lv_obj_t *root)
         lv_obj_add_event_cb(c, preset_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         lv_obj_t *l = lv_label_create(c);
         lv_label_set_text_fmt(l, "%d", PRESET[i]);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(l, &font_zh_20, 0);
         lv_obj_center(l);
         s_chip[i] = c;
     }

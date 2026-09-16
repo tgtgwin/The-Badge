@@ -5,6 +5,7 @@
  * three columns down the middle and the operators sit on the left and right
  * flanks of the circle — on a round screen that is where the room is. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
 #include <stdio.h>
@@ -298,8 +299,8 @@ static void enter(lv_obj_t *root)
 
             lv_obj_t *l = lv_label_create(root);
             lv_label_set_text(l, t[0] == '*' ? LV_SYMBOL_CLOSE : t);
-            lv_obj_set_style_text_font(l, t[0] == '*' ? &lv_font_montserrat_20
-                                                      : &lv_font_montserrat_26, 0);
+            lv_obj_set_style_text_font(l, t[0] == '*' ? &font_zh_20
+                                                      : &font_zh_26, 0);
             lv_obj_set_style_text_color(l, lv_color_white(), 0);
             lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, 0);
             lv_obj_update_layout(l);
@@ -313,7 +314,7 @@ static void enter(lv_obj_t *root)
     lv_obj_align(s_disp, LV_ALIGN_TOP_MID, 0, 44);
 
     s_sub = lv_label_create(root);
-    lv_obj_set_style_text_font(s_sub, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_sub, &font_zh_20, 0);
     lv_obj_set_style_text_color(s_sub, lv_color_hex(0xE0A33A), 0);
     lv_obj_align(s_sub, LV_ALIGN_TOP_MID, -112, 52);
 
@@ -353,6 +354,6 @@ static void leave(void)
 static lv_color_t tint(void) { return lv_color_hex(0xE0A33A); }
 
 const badge_app_t app_calc = {
-    .name = "Calc", .art = &app_icon_calc, .icon = LV_SYMBOL_LIST, .tint = tint,
+    .name = "计算器", .art = &app_icon_calc, .icon = LV_SYMBOL_LIST, .tint = tint,
     .radio = RADIO_OFF, .enter = enter, .leave = leave,
 };

@@ -7,10 +7,9 @@
  *   marble maze   — tilt to roll it, which puts the idle IMU to work
  *   bubble wrap   — pop them, they come back */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
-#include "water.h"
-#include "orb.h"
 #include <math.h>
 #include <stdlib.h>
 
@@ -142,8 +141,8 @@ static void arm_start(lv_timer_cb_t cb, uint32_t ms)
     s_pending_cb = cb;
     s_pending_ms = ms;
     s_ready_lbl = lv_label_create(s_root);
-    lv_label_set_text(s_ready_lbl, "tap to start");
-    lv_obj_set_style_text_font(s_ready_lbl, &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_ready_lbl, "轻点开始");
+    lv_obj_set_style_text_font(s_ready_lbl, &font_zh_20, 0);
     lv_obj_set_style_text_color(s_ready_lbl, lv_color_hex(0xE8ECF0), 0);
     lv_obj_align(s_ready_lbl, LV_ALIGN_CENTER, 0, 128);
 }
@@ -183,7 +182,6 @@ static lv_obj_t *s_pop_lbl;
 static int       s_refill_in;  /* if >= 0, refill after this many ticks */
 
 void pop_start(void);
-static void do_orb(void);
 void brk_start(void);
 static void brk_rebuild(void);
 static int  s_brk_life = BRK_LIVES;
@@ -198,8 +196,6 @@ static void clear_board(void)
     s_pending_cb = NULL;
     s_ready_lbl = NULL;
     s_g0_set = false;
-    water_stop();
-    orb_stop();
     s_pop_n = s_pop_left = 0;
     s_pop_lbl = NULL;
     for (int i = 0; i < POP_MAX; i++) s_pop[i] = NULL;
@@ -272,18 +268,11 @@ static void do_back(void)
     show_menu();
 }
 
-static void orb_menu(void);
-
-/* 🚨 Back out of the planets and you ended up in the games menu. Three apps
- * share this file, but back should follow **the door you came in by**, not
- * the file. So the destination is handed to the button. */
-static void do_orb_back(void)
-{
-    clear_board();
-    launcher_handle_show(true);
-    orb_menu();
-}
-
+/* 🚨 Back should follow **the door you came in by**, not the file it lives in.
+ * That mattered when three apps shared this file — leaving the planets used to
+ * land you in the games menu. Only the games are in here now, so every board
+ * goes back to the menu, but the destination is still handed to the button
+ * rather than assumed. */
 static void back_cb(lv_event_t *e)
 {
     void (*dest)(void) = (void (*)(void))lv_event_get_user_data(e);
@@ -380,7 +369,7 @@ static void put(lv_obj_t *o, float x, float y)
 static lv_obj_t *make_score(void)
 {
     lv_obj_t *l = lv_label_create(s_root);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(l, &font_zh_24, 0);
     lv_obj_set_style_text_color(l, lv_color_white(), 0);
     lv_obj_align(l, LV_ALIGN_CENTER, 0, 168);
     return l;
@@ -609,7 +598,7 @@ static void brk_phys(void)
             } else {
                 s_brk_life = BRK_LIVES;
                 s_level = 0;
-                lv_label_set_text(s_score, "game over");
+                lv_label_set_text(s_score, "游戏结束");
             }
             defer(brk_rebuild);
             return;
@@ -623,7 +612,7 @@ static void brk_phys(void)
             lv_label_set_text_fmt(s_score, "L%d!  o%d", s_level + 1, s_brk_life);
             defer(brk_rebuild);
         } else {
-            lv_label_set_text(s_score, "all clear!");
+            lv_label_set_text(s_score, "全部通过！");
         }
     }
 }
@@ -756,16 +745,6 @@ void games_debug_tilt0(float *base, int *set)
     if (base) *base = s_tilt0;
     if (set)  *set  = s_tilt0_set ? 1 : 0;
 }
-
-/* For tests — open the planets directly, skipping the chooser */
-void games_debug_play_orb(void)
-{
-    clear_board();
-    launcher_handle_show(true);
-    s_loop = orb_start(s_root, ORB_EARTH);
-}
-
-
 
 /* For tests — start brick breaker immediately, without waiting for a tap.
  * Needed to measure how many milliseconds the timer actually takes while a
@@ -956,7 +935,7 @@ void brk_start(void)
 
     s_ball = dot(s_root, (int)(BALL_R * 2), 0xFFFFFF);
     /* 🚨 Position it or LVGL leaves a new object at (0,0) — the ball sat in
-     * the top-left corner for as long as "tap to start" was showing, and only
+     * the top-left corner for as long as "轻点开始" was showing, and only
      * jumped into place on the first step. Pinball placed its ball on
      * creation; this was the one that did not. */
     put(s_ball, s_bx, s_by);
@@ -1600,7 +1579,7 @@ void pop_start(void)
     s_pop_left = s_pop_n;
 
     s_pop_lbl = lv_label_create(s_root);
-    lv_obj_set_style_text_font(s_pop_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_pop_lbl, &font_zh_16, 0);
     lv_obj_set_style_text_color(s_pop_lbl, lv_color_hex(0x6A7486), 0);
     lv_obj_align(s_pop_lbl, LV_ALIGN_CENTER, 0, 196);
     pop_paint_count();
@@ -1618,12 +1597,12 @@ static void show_menu(void)
     /* A tall list gets clipped top and bottom on a round screen. Rows of two fit.
      * Only the games are listed — water and the planets became their own apps
      * on the home screen. */
-    static const char *NAME[4] = { "Bricks", "Pinball", "Marble", "Pop" };
+    static const char *NAME[4] = { "打砖块", "弹珠台", "滚珠迷宫", "气泡纸" };
     static const uint32_t COL[4] = { 0x2E6E5A, 0x6E2E4A, 0x6E5A2E, 0x4A3A6E };
 
     lv_obj_t *t = lv_label_create(s_root);
-    lv_label_set_text(t, "Games");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_label_set_text(t, "游戏");
+    lv_obj_set_style_text_font(t, &font_zh_20, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x8A8A90), 0);
     /* 🚨 Going to four buttons moved the first one up to -135 (y 63..133).
      * The title at -158 (y 75) ended up behind it and vanished completely,
@@ -1644,7 +1623,7 @@ static void show_menu(void)
         lv_obj_add_event_cb(b, pick_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, NAME[i]);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_font(l, &font_zh_24, 0);
         lv_obj_center(l);
     }
 }
@@ -1665,8 +1644,6 @@ static void leave(void)
     s_defer_fn = NULL;      /* a pending switch would land on a deleted board */
     launcher_handle_show(true);
     stop_loop();
-    water_stop();
-    orb_stop();
     port_tone_enable(false);
     port_tone_hold(false);   /* let the codec go on the way out */
     s_root = NULL;
@@ -1674,91 +1651,7 @@ static void leave(void)
 
 static lv_color_t tint(void) { return lv_color_hex(0x7FB0FF); }
 
-/* ── doors straight from home ────────────────────────────────
- * Water and the planets open from the home screen without going through the
- * games menu. They use the same board — two copies of this would mean fixing
- * one of them and not the other. */
-static void enter_water(lv_obj_t *root)
-{
-    enter(root);              /* build the board (this draws the menu) */
-    lv_obj_clean(s_root);     /* then take the menu away */
-    launcher_handle_show(true);
-    s_loop = water_start(s_root);
-}
-
-/* ── the planets ─────────────────────────────────────────────
- * Pick one of four. Four separate apps would crowd the home screen, and there
- * is only one renderer and one table anyway. The choice is remembered and
- * opens straight into it next time. */
-static orb_kind_t s_orb_pick = ORB_MOON;
-
-static void orb_go(lv_event_t *e)
-{
-    s_orb_pick = (orb_kind_t)(intptr_t)lv_event_get_user_data(e);
-    defer(do_orb);
-}
-
-static void do_orb(void)
-{
-    lv_obj_clean(s_root);
-    launcher_handle_show(true);
-    s_loop = orb_start(s_root, s_orb_pick);
-    /* 🚨 There was somewhere to go back to and no door to it. Same place and
-     * same shape as in the games, but back here means **the planet list**. */
-    add_back_to(do_orb_back);
-}
-
-static void orb_menu(void)
-{
-    lv_obj_t *t = lv_label_create(s_root);
-    lv_label_set_text(t, "Orbit");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(t, lv_color_hex(0x8A8A90), 0);
-    lv_obj_align(t, LV_ALIGN_CENTER, 0, -172);
-
-    /* Each one in its own colour, so you know which is which without reading. */
-    static const uint32_t COL[ORB_N] = {
-        0x4A4A52,   /* Moon    grey   */
-        0x2A5A7E,   /* Earth   blue   */
-        0x8A5A18,   /* Sun     orange */
-        0x7A5A3A,   /* Jupiter brown  */
-    };
-    for (int i = 0; i < ORB_N; i++) {
-        lv_obj_t *b = lv_button_create(s_root);
-        lv_obj_set_size(b, 250, 58);
-        lv_obj_set_style_radius(b, 29, 0);
-        lv_obj_set_style_bg_color(b, lv_color_hex(COL[i]), 0);
-        lv_obj_set_style_shadow_width(b, 0, 0);
-        lv_obj_align(b, LV_ALIGN_CENTER, 0, (i - (ORB_N - 1) * 0.5f) * 66);
-        lv_obj_add_event_cb(b, orb_go, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-        lv_obj_t *l = lv_label_create(b);
-        lv_label_set_text(l, ORB_NAME[i]);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
-        lv_obj_center(l);
-    }
-}
-
-static void enter_orb(lv_obj_t *root)
-{
-    enter(root);
-    lv_obj_clean(s_root);
-    launcher_handle_show(true);
-    orb_menu();
-}
-
-static lv_color_t tint_water(void) { return lv_color_hex(0x3E9BD8); }
-static lv_color_t tint_orb(void)   { return lv_color_hex(0x6A7AA8); }
-
-const badge_app_t app_water = {
-    .name = "Water", .art = &app_icon_water, .icon = LV_SYMBOL_TINT, .tint = tint_water,
-    .radio = RADIO_OFF, .enter = enter_water, .leave = leave,
-};
-const badge_app_t app_orb = {
-    .name = "Orbit", .art = &app_icon_moon, .icon = LV_SYMBOL_EYE_OPEN, .tint = tint_orb,
-    .radio = RADIO_OFF, .enter = enter_orb, .leave = leave,
-};
-
 const badge_app_t app_games = {
-    .name = "Games", .art = &app_icon_games, .icon = LV_SYMBOL_PLAY, .tint = tint,
+    .name = "游戏", .art = &app_icon_games, .icon = LV_SYMBOL_PLAY, .tint = tint,
     .radio = RADIO_OFF, .enter = enter, .leave = leave,
 };

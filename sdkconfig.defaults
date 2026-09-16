@@ -24,7 +24,15 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
-CONFIG_LV_DEF_REFR_PERIOD=15
+# 🚨 15 ms is 67 frames a second, which no part of this interface needs — the
+#    fastest thing on it is a game stepping at 20 ms. LVGL's refresh timer runs
+#    whether or not anything needs drawing, so on a badge the frame rate that
+#    costs power is the one nothing is looking at. 30 ms (33 fps) is past what
+#    the eye follows on a 466 px panel and roughly halves the wake-ups.
+#    🚨 sim/lv_conf.h has to say the same thing. It said 33 while this said 15,
+#    so the simulator and the badge had been drawing at different rates — which
+#    is the kind of difference that makes a timing bug unfindable.
+CONFIG_LV_DEF_REFR_PERIOD=30
 CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_OBJ_STYLE_CACHE=y
 

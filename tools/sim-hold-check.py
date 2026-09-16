@@ -64,7 +64,7 @@ def once(wait_ms, hold_ms):
     for _ in range(8):
         step(100); frame()
     send("K 0\n"); step(100); frame()
-    send("A 8\n")                       # settings
+    send("A 6\n")                       # settings
     for _ in range(10):
         step(50); frame()
     drag(233, 380, 120)                 # scroll the list to bring Bluetooth out

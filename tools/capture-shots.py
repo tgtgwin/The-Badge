@@ -88,8 +88,8 @@ def swipe(x0, y0, x1, y1, n=10):
 
 
 def app(n):
-    """The sim's A command: 0 mouse, 2 keys, 3 calc, 4 games, 5 clock,
-    6 water, 7 orbs, 8 settings."""
+    """The sim's A command — the list in sim/main_sim.c, case 'A':
+    0 games, 1 air mouse, 2 clock, 3 calc, 4 meet, 5 keys, 6 settings."""
     home(); send("A %d\n" % n); wait(1200)
 
 
@@ -97,7 +97,7 @@ GAME_Y = {"bricks": 98, "pinball": 188, "marble": 278, "pop": 368}
 
 
 def game(which, play, tap_at=(233, 233)):
-    app(4)
+    app(0)
     tap(233, GAME_Y[which], 80, 900)
     tilt(0, 1000, 400)              # a level attitude before the start tap
     tap(tap_at[0], tap_at[1], 80, 120)
@@ -114,7 +114,7 @@ shot("lock")           # the simulator starts here
 send("G\n"); wait(900); bare(); shot("home")
 
 # ── the clock app's four pages ────────────────────────────────
-app(5); bare()
+app(2); bare()
 shot("clock")
 swipe(233, 380, 233, 110); wait(600); bare(); shot("timer")
 swipe(233, 380, 233, 110); wait(400)
@@ -125,26 +125,20 @@ bare(); shot("stopwatch")
 swipe(233, 380, 233, 110); wait(600); bare(); shot("alarm")
 
 # ── the rest of the apps ──────────────────────────────────────
-app(0); shot("mouse")
-app(2); bare(); shot("keys")
+app(1); shot("mouse")
+app(5); bare(); shot("keys")
 # 🚨 Put the screen-off delay back to the default first. The K 0 above keeps
 #    the screen alive through the capture, but settings writes the live value
 #    into its own row, so with it left at 0 the picture says "never".
 send("K 30\n"); wait(100)
-app(8); bare(); shot("settings")
+app(6); bare(); shot("settings")
 send("K 0\n"); wait(100)
 app(3); bare()
 for x, y in [(65, 178), (405, 243), (172, 178), (285, 395)]:   # 7 x 8 =
     tap(x, y)
 bare(); shot("calc")
 
-# 🚨 Gravity on screen is -x, not +y: "I 0 1000 0" pours the water out to the
-#    left. Settle it at the bottom first, then tip it enough for the boat to
-#    ride the slope.
-app(6); tilt(-1000, 0, 3000); tilt(-950, 300, 700); bare(); shot("water")
-app(7); tap(233, 200); wait(1500); send("L 0.62\n"); wait(200); bare(); shot("orbit")
-
-app(1)                                          # the recorder
+app(4)                                          # the recorder
 bare(); tap(233, 233, 80, 3000); shot("rec")
 
 # ── the games ─────────────────────────────────────────────────
@@ -157,7 +151,7 @@ game("marble", lambda: [tilt(260, 260, 450), tilt(-180, 330, 450),
 game("pop", lambda: [tap(x, y, 60, 150) for x, y in
                      [(150, 180), (210, 150), (280, 200),
                       (180, 260), (300, 300), (240, 330)]])
-app(4); bare(); shot("games")
+app(0); bare(); shot("games")
 
 send("Q\n")
 p.wait(timeout=10)

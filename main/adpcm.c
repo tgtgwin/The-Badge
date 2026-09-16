@@ -66,6 +66,43 @@ void adpcm_encode_block(const int16_t *pcm, int n, uint8_t out[ADPCM_BLOCK_BYTES
 static void put32(uint8_t *p, uint32_t v) { p[0]=v; p[1]=v>>8; p[2]=v>>16; p[3]=v>>24; }
 static void put16(uint8_t *p, uint16_t v) { p[0]=v; p[1]=v>>8; }
 
+void adpcm_decode_block(const uint8_t in[ADPCM_BLOCK_BYTES], int16_t *pcm, int n)
+{
+    if (!pcm || n <= 0) return;
+
+    /* The block header, exactly as the encoder wrote it. */
+    int32_t pred = (int32_t)(int16_t)(in[0] | (in[1] << 8));
+    int index = in[2];
+    if (index > 88) index = 88;
+    pcm[0] = (int16_t)pred;
+
+    /* 🚨 The mirror of the encoder, down to the shift order. The three code
+     * bits contribute step, step/2 and step/4, and the sign bit takes the whole
+     * delta off instead of adding it. Written the other way round the audio
+     * comes back as noise that still sounds like speech, which is a miserable
+     * thing to debug. */
+    for (int i = 1; i < ADPCM_BLOCK_SAMPLES && i < n; i++) {
+        int pos = i - 1;                     /* code order: low nibble first */
+        uint8_t c = (pos & 1) ? (uint8_t)(in[4 + pos / 2] >> 4)
+                              : (uint8_t)(in[4 + pos / 2] & 0x0F);
+
+        int step = STEP[index];
+        int delta = step >> 3;
+        if (c & 4) delta += step;
+        if (c & 2) delta += step >> 1;
+        if (c & 1) delta += step >> 2;
+
+        pred += (c & 8) ? -delta : delta;
+        if (pred >  32767) pred =  32767;
+        if (pred < -32768) pred = -32768;
+        pcm[i] = (int16_t)pred;
+
+        index += INDEX[c];
+        if (index < 0)  index = 0;
+        if (index > 88) index = 88;
+    }
+}
+
 size_t adpcm_wav_header(uint8_t *out, uint32_t data_bytes, uint32_t sample_rate)
 {
     uint32_t blocks  = data_bytes / ADPCM_BLOCK_BYTES;

@@ -16,10 +16,24 @@ typedef struct {
     lv_color_t (*tint)(void);   /* home icon colour */
     radio_need_t radio;
     bool         keep_awake;    /* true skips the display timeout */
+    /* ── the second way an app can need to stay awake ─────────────
+     * 🚨 keep_awake and this answer different questions, and conflating them is
+     *    how the alarm stopped working. keep_awake means "do not let the
+     *    display go dark"; this means "my timers must keep running even though
+     *    it has". A countdown wants the first while you watch it and the second
+     *    once it is in your pocket.
+     *    🚨 Default false, and only the clock sets it. Recording does not need
+     *    it: the microphone runs in its own task, not an LVGL timer. Nor does
+     *    the air mouse: a paused timer means the cursor stops, which is what a
+     *    dark screen should mean. */
+    bool         timers_dark;
     void (*enter)(lv_obj_t *root);  /* build the screen  */
     void (*leave)(void);            /* free timers and the rest */
 } badge_app_t;
 
+/* 🚨 One mouse app, not two. "Trackpad" and "Air Mouse" were the same
+ * implementation with a different starting mode, so the home screen carried two
+ * icons for one thing. The toggle inside switches between them. */
 extern const badge_app_t app_mouse;
 extern const badge_app_t app_clock;
 extern const badge_app_t app_settings;
@@ -27,9 +41,6 @@ extern const badge_app_t app_keys;
 extern const badge_app_t app_calc;
 extern const badge_app_t app_games;
 extern const badge_app_t app_meet;
-extern const badge_app_t app_air;   /* the mouse app, entered in air mode */
-extern const badge_app_t app_water; /* a board inside Games, opened from home */
-extern const badge_app_t app_orb;   /* planets — pick one of five inside */
 
 /* ── multi-tap keypad ─────────────────────────────────────────
  * Old phone style: press a key repeatedly to walk through its letters. It

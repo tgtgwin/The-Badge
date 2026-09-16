@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # Checks in the sources whether anything we have been bitten by has come back.
 #
-# 🚨 The same mistake has been made twice (freeing memory before the picture —
-#    fixed in the orbs, repeated in water). Remembering where it was fixed is
-#    not good enough. The 'trace' of the fix is pinned down by a check.
+# 🚨 Every check below is a mistake that actually happened, and most of them
+#    happened twice. Remembering where a thing was fixed is not good enough —
+#    the 'trace' of the fix is pinned down instead, so the same bug cannot come
+#    back by being written in a different shape.
+#
+# 🚨 Two boards used to be checked here and are gone (the water and the planets,
+#    and the orb photographs under them). Their checks went with them. What a
+#    check may never become is a grep for a function name: one of the removed
+#    ones had drifted into grepping for a file that no longer existed, and grep
+#    returning "no such file" made it pass. See the note on the Saturn check for
+#    what that looks like.
 set -u
 cd "$(dirname "$0")/.."
 FAIL=0
@@ -64,18 +72,30 @@ grep -qE 'pct > s_last_pct' main/port_esp.c \
   && ok "a level pushed down by load is not counted twice" || bad "double counting of the level is back"
 
 echo "════ the way out (never free memory before the picture) ════"
-grep -A6 "^void orb_stop" main/apps/orb.c | grep -q "lv_obj_delete(s_canvas)" \
-  && ok "orbs: the picture is deleted first" || bad "orb_stop frees the memory first"
-grep -A8 "^void water_stop" main/apps/app_water.c | grep -q "lv_obj_delete(s_field)" \
-  && ok "water: the picture is deleted first" || bad "water_stop frees the memory first"
-grep -A3 "^static void draw_cb" main/apps/app_water.c | grep -q "if (!s_x" \
-  && ok "water: nothing is drawn after the free" || bad "water's draw_cb has no guard"
+# 🚨 The lesson stands even though the two boards that taught it are gone: a
+#    canvas points into a buffer somebody else owns, and LVGL draws one more
+#    frame while the closing animation runs. Freeing the buffer on the way out
+#    means that frame reads freed memory.
+#    Calc is the board that still holds a canvas, and it hands the buffer back
+#    from a timer that fires after the animation rather than from leave().
+grep -A6 "^static void free_cb" main/apps/app_calc.c | grep -q "port_big_free(s_cbuf)" \
+  && ok "calc hands its canvas buffer back from the timer" \
+  || bad "calc no longer frees the canvas buffer at all"
+python3 - <<'EOF' && ok "calc does not free the canvas buffer while the screen is still up" || bad "calc frees the canvas buffer while an object still points at it"
+import re, sys
+src = open("main/apps/app_calc.c", encoding="utf-8").read()
+m = re.search(r"static void leave\(void\)\n\{(.*?)\n\}", src, re.S)
+if not m:
+    print("  cannot find leave()"); sys.exit(1)
+if "port_big_free" in m.group(1):
+    print("  leave() frees the buffer straight away"); sys.exit(1)
+if "lv_timer_create(free_cb" not in m.group(1):
+    print("  leave() does not schedule the deferred free"); sys.exit(1)
+EOF
 
 echo "════ axes and directions (wrong several times on the hardware) ════"
 grep -q "s_mvx -= gy" main/apps/app_games.c && grep -q "s_mvy -= gx" main/apps/app_games.c \
   && ok "marble: the IMU axes being 90 degrees off the screen is accounted for" || bad "the marble axes are back to front"
-grep -qE "yy = -\(float\)dy / (ORB_R|s_R)" main/apps/orb.c \
-  && ok "orbs: up on screen is north" || bad "the orbs' north and south are flipped"
 grep -q "float lat = gy;" main/apps/app_games.c \
   && ok "tilt board: it goes the way it is tilted" || bad "the tilt board's left and right are reversed"
 
@@ -86,10 +106,12 @@ BTN=$(grep -n 's_air_l = mk_click_btn' main/apps/app_mouse.c | cut -d: -f1)
   && ok "it shows and hides after the buttons exist (called first, they stay hidden)" \
   || bad "air_paint is called before the buttons — the left and right buttons never appear"
 
-echo "════ turning pages ════"
-grep -q 'build_home();' main/launcher.c && grep -A6 's_swiped = true;' main/launcher.c | grep -q 'build_home' \
-  && ok "changing page rebuilds home (merely showing it again leaves the screen as it was)" \
-  || bad "the page changes but home is not rebuilt"
+echo "════ rebuilding home ════"
+# 🚨 A check stood here asserting that turning the page rebuilt home —
+#    launcher_show_home() only re-shows a screen that already exists, so the
+#    page number changed and the screen did not. There are no pages now, so the
+#    check went with the swipe. The two below are about home being rebuilt on
+#    the way back from an app, which still happens every time.
 
 grep -qE 's_prev_p = -2;' main/launcher.c \
   && ok "a rebuilt home always writes the battery number once (without it, LVGL's default 'Text' stays)" \
@@ -154,13 +176,13 @@ echo "════ waking the IMU ════"
 # 🚨 The first readings after a sleep cannot be trusted — used as "level", the board sticks to one edge
 grep -q "imu_settled" main/port_esp.c \
   && ok "right after waking it answers that it does not know yet" || bad "it hands over what it read the instant it woke"
-# 🚨 On 09-09 water dropped "pin the attitude level on open" and moved to real
-#    gravity, so there is no baselining left at all — the old check was looking
-#    for code that no longer exists. The meaning to hold now is "do not use the
-#    IMU's values while they cannot be trusted".
-grep -q "bool have = port_imu_accel3" main/apps/app_water.c \
-  && grep -q "if (!have)" main/apps/app_water.c \
-  && ok "water substitutes a value while the IMU cannot be trusted" || bad "water uses values it cannot trust"
+# 🚨 A check stood here — "water substitutes a value while the IMU cannot be
+#    trusted", reading `bool have = port_imu_accel3` and `if (!have)`. Its
+#    subject is gone and it had no other board to move to: the remaining ones
+#    test the call's return value directly rather than parking it in a local,
+#    so a check rewritten to look for that would pass on shapes that mean
+#    nothing. Rather than keep a check that only looks like coverage, the rule
+#    is left to the two checks below and above, both of which read behaviour.
 
 echo "════ starting BLE ════"
 # 🚨 esp_bt_controller does not return an error when it cannot allocate — it
@@ -254,86 +276,141 @@ for m in re.finditer(r"\n(?:static )?\w[\w \*]*?(\w+)\([^)]*\)\s*\n?\{", src):
 if bad:
     print("  reads the tilt without counting activity:", ", ".join(bad)); sys.exit(1)
 EOF
-# 🚨 Water is steered by tilting the boat too — nobody touches the screen and it went dark in 30 seconds (reported 09-09)
-grep -q "lv_display_trigger_activity" main/apps/app_water.c \
-  && ok "water stays awake while it is tilted" || bad "the screen goes off while water is being played"
-
-echo "════ clearing the water image ════"
-# 🚨 paint_img() dropped its memset and clears only what changed, which is what
-#    took the frame from 80 ms to 54. The cost is that s_img now has to be
-#    allocated zeroed: with no memset, anywhere nobody paints goes to the screen
-#    exactly as it came from the allocator. Swapping the calloc back to a malloc
-#    would put whatever PSRAM held on screen for the first frame, and nothing
-#    would fail — it would just look wrong once, at startup, on a device nobody
-#    is watching with a debugger.
-python3 - <<'EOF' && ok "the water image is allocated zeroed, and nothing memsets it wholesale" || bad "s_img is not zeroed at allocation, or the wholesale memset came back"
-import re, sys
-src = open("main/apps/app_water.c", encoding="utf-8").read()
-m = re.search(r"^\s*s_img\s*=\s*(\w+)\(", src, re.M)
-if not m:
-    print("  cannot find where s_img is allocated"); sys.exit(1)
-if "calloc" not in m.group(1):
-    print("  s_img comes from %s(), which does not zero it" % m.group(1)); sys.exit(1)
-# the per-frame wholesale clear must not come back
-if re.search(r"memset\(s_img \+ \(size_t\)s_img_y0", src):
-    print("  the whole-band memset is back in paint_img()"); sys.exit(1)
+# 🚨 The same rule for every board, not just the games file. Water was the one
+#    that first showed it — steered by tilting the boat, nobody touched the
+#    screen, and it went dark in 30 seconds (reported 09-09).
+#    🚨 A board that holds the screen awake for its own reasons is exempt: the
+#    air mouse reads tilt to drive the cursor, and .keep_awake = true means the
+#    timeout never reaches it anyway. Counting tilt as activity there would be
+#    noise, not safety.
+python3 - <<'EOF' && ok "every board steered by tilt keeps the screen awake" || bad "a board steered by tilt lets the screen go dark"
+import os, sys
+bad = []
+for name in sorted(os.listdir("main/apps")):
+    if not name.endswith(".c"): continue
+    src = open(os.path.join("main/apps", name), encoding="utf-8").read()
+    if "port_imu_accel(" not in src: continue
+    if ".keep_awake = true" in src: continue
+    if "lv_display_trigger_activity" not in src and "tilt_is_input(" not in src:
+        bad.append(name)
+if bad:
+    print("  steered by tilt but never wakes the screen:", ", ".join(bad)); sys.exit(1)
 EOF
 
-echo "════ the frame yardstick ════"
-# 🚨 Measuring only compute time is half the story — painting and pushing the screen are left out and it does not match the eye
-# The **act of measuring** is checked, not the wording: both apps log the gap between frames
-grep -qE "real interval" main/apps/app_water.c \
-  && grep -qE "real interval" main/apps/orb.c \
-  && ok "compute time and the real interval are measured together" || bad "only compute time is being measured"
-
-echo "════ the orb textures ════"
-# 🚨 Two separate scars here.
-#    1. A picture made in code must never be written over a photograph someone
-#       baked in with tools/make-orb-texture.py — hence the s_tex_bake guard.
-#    2. Every kind needs its own bake. The Sun and Jupiter used to fall through
-#       to bake_earth() and both came out as the Earth.
-#    Do not pin this to the shape of the code — that check broke the moment the
-#    if became a switch. Read the kinds out of the header and look for each one.
-python3 - <<'EOF' && ok "every orb kind bakes its own, and only when nothing was baked in" || bad "an orb kind has no bake of its own, or a bake overwrites a baked-in photograph"
-import re, sys
-hdr = open("main/apps/orb.h", encoding="utf-8").read()
-src = open("main/apps/orb.c", encoding="utf-8").read()
-m = re.search(r"typedef enum \{([^}]*)\} orb_kind_t", hdr)
-if not m: print("  cannot find orb_kind_t"); sys.exit(1)
-kinds = [k.strip() for k in m.group(1).split(",") if k.strip()]
-kinds = [k for k in kinds if k != "ORB_N"]
-if len(kinds) < 2: print("  orb_kind_t looks wrong:", kinds); sys.exit(1)
-
-blk = re.search(r"if \(s_tex_bake\)\s*\{(.*?)\n    \}", src, re.S)
-if not blk: print("  the bake is not guarded by s_tex_bake"); sys.exit(1)
-body = blk.group(1)
-missing = []
-for k in kinds:
-    fn = "bake_" + k[len("ORB_"):].lower()
-    if ("static void %s(void)" % fn) not in src: missing.append(fn + "() is not defined")
-    elif (fn + "()") not in body:               missing.append(fn + "() is never reached")
-if missing:
-    print("  " + " · ".join(missing)); sys.exit(1)
-EOF
-
-echo "════ the orbs' attitude ════"
-# 🚨 An axis that cannot lean sideways is a turntable, and Saturn's rings would lie flat forever
-grep -q "s_lean" main/apps/orb.c \
-  && ok "the axis leans sideways" || bad "the orbs are back to a turntable"
-# 🚨 A leaning axis means the finger movement has to be unwound too — otherwise at 90 degrees across becomes down
-grep -q "float bx =" main/apps/orb.c && grep -q "fabsf(bgy)" main/apps/orb.c \
-  && ok "the drag is unwound by the lean" || bad "the drag direction goes wrong when it leans"
-# 🚨 Saturn was taken out — the ring-drawing code and its photograph must not be left holding flash
-! grep -qi "saturn" main/apps/orb.c main/apps/orb.h \
-  && [ ! -f main/assets/orb_tex_saturn.h ] \
-  && ok "no trace of Saturn is left" || bad "leftovers of Saturn remain"
+# ── removed with the boards they guarded ──────────────────────
+# Four sections went with the water and the planets: clearing the water image,
+# the frame yardstick, the orb textures, and the orbs' attitude. They were real
+# checks while those files existed and there is nothing left for them to read.
+#
+# 🚨 The one worth remembering as a shape to avoid is the Saturn check:
+#        ! grep -qi "saturn" main/apps/orb.c main/apps/orb.h
+#    While those files existed it meant something. Once they were deleted grep
+#    returned 2 — an error, not a non-match — `!` turned that into success, and
+#    the check passed while asserting nothing at all. A check that reads a file
+#    list rots silently the moment a file leaves. The replacements above read the
+#    sources and count what they find instead, so a file that goes missing shows
+#    up as a failure rather than a pass.
 
 echo "════ recording space ════"
-# 🚨 Not taking exported recordings off the list means the space never comes back (09-08: all 12 exported, 3.9 minutes left)
-grep -q "purge_sent" main/rec_store.c && grep -q "purge_sent();" main/rec_store.c \
-  && ok "exported recordings come off the list" || bad "the space does not come back after exporting"
-# 🚨 Shaking the list mid-recording has the microphone write into the wrong slot
-grep -A2 "static void purge_sent(void)$" main/rec_store.c | grep -q "if (s_active) return;" \
+# 🚨 The space has to come back. The store used to keep a per-entry `sent` flag
+#    and the only thing that ever set it was rec_mark_sent(), which nothing
+#    called — so a badge that filled its 24 MB once could never record again.
+#    The flag is gone. What decides a recording is finished with is
+#    uploaded_abs, a single monotonic head, and dropping the entries below it is
+#    what frees the space (09-08: all 12 exported, 3.9 minutes left).
+grep -q "purge_uploaded" main/rec_store.c && grep -q "purge_uploaded();" main/rec_store.c \
+  && ok "uploaded recordings come off the list" || bad "the space does not come back after uploading"
+# 🚨 Shaking the list mid-recording has the microphone write into the wrong slot.
+#    🚨 This check used to be written with a trailing backslash and no ok/bad, so
+#    it ran and threw its answer away — it could never fail, and nobody noticed.
+grep -A3 "static void purge_uploaded(void)$" main/rec_store.c | grep -q "if (s_active) return;" \
+  && ok "the list is not shaken while the microphone writes into it" \
+  || bad "an entry can be removed while the microphone holds its index"
+
+echo "════ the ring ════"
+# 🚨 These two are what make a ring of bytes safe to hand to an uploader.
+#    Break the first and the uploader is told to send bytes that were never
+#    written; break the second and a new recording writes over a meeting that
+#    never reached the server.
+grep -q "if (abs > s_dir.write_abs) abs = s_dir.write_abs;" main/rec_store.c \
+  && ok "the uploaded head cannot pass the write head" \
+  || bad "uploaded_abs may run past write_abs"
+grep -q "e->start_abs + e->bytes > s_dir.uploaded_abs" main/rec_store.c \
+  && ok "a recording refuses to overwrite audio that is not uploaded yet" \
+  || bad "an un-uploaded recording can be written over"
+# 🚨 The ring is a ring: DATA_START + data_size must land back on DATA_START, or
+#    the wrap tears a file in half at the seam.
+python3 - <<'EOF' && ok "the data area is a whole number of sectors, so the seam is clean" || bad "the ring does not wrap onto a sector boundary"
+import re, sys
+t = open("main/rec_store.c", encoding="utf-8").read()
+if not re.search(r"#define DATA_START\s+\(SECTOR \* 2\)", t):
+    print("  DATA_START is not two sectors"); sys.exit(1)
+if "return s_part->size - DATA_START;" not in t:
+    print("  the data area is not the partition minus the directory"); sys.exit(1)
+EOF
+
+echo "════ the recording directory ════"
+# 🚨 One copy, erased and rewritten in place. A power cut in that window left no
+#    directory at all — the checksum failed and every recording on the badge
+#    became unreachable in one go. Two copies and a sequence number means the
+#    other one is always intact, whatever happens to the one being written.
+grep -q "dir_read_copy" main/rec_store.c && grep -q "s_dir.crc = crc32_of" main/rec_store.c \
+  && grep -q "a.seq >= b.seq" main/rec_store.c \
+  && ok "the directory keeps two checksummed copies" \
+  || bad "the directory has one copy and can be lost whole"
+# 🚨 The uploaded head moves every chunk. Writing it out every time would erase a
+#    directory sector every few seconds and wear the directory out in weeks while
+#    the data area lasts ten years.
+grep -q "DIR_FLUSH_BYTES" main/rec_store.c \
+  && grep -q "abs - s_dir_flushed_uploaded >= DIR_FLUSH_BYTES" main/rec_store.c \
+  && ok "the uploaded head is not written out on every chunk" \
+  || bad "the uploaded head is flushed per chunk and will wear the directory out"
+
+echo "════ the WAV header ════"
+# 🚨 There were two of these and they disagreed. The one in use said
+#    `36 + data`, which is the length for a 44-byte PCM header; an ADPCM header
+#    is 60 bytes, so it was four bytes short and anything that trusted the field
+#    called the file corrupt. One implementation now, shared with tools/serve.
+grep -q "ADPCM_WAV_HEADER_BYTES 60" main/adpcm.h \
+  && ok "the header is the 60-byte one" || bad "the WAV header length is wrong again"
+grep -q "adpcm_wav_header" main/usb_export.c \
+  && ok "the export uses the shared header" || bad "usb_export went back to a header of its own"
+! grep -qE "put32\(b \+ 4, 36 \+" main/usb_export.c \
+  && ok "the four-bytes-short RIFF length is gone" || bad "the RIFF length is short again"
+# 🚨 The file a strict reader rejects is the file a person cannot play.
+python3 - <<'EOF' && ok "the RIFF length agrees with the header and the data" || bad "the RIFF length does not add up"
+import re, sys
+src = open("main/adpcm.c", encoding="utf-8").read()
+m = re.search(r"size_t adpcm_wav_header.*?\n\}", src, re.S)
+if not m:
+    print("  adpcm_wav_header is gone"); sys.exit(1)
+body = m.group(0)
+# RIFF size = 4 + 8 + 20 + 8 + 4 + 8 + data = 52 + data, i.e. file length - 8,
+# because the header is 60 bytes and 60 - 8 = 52.
+if not re.search(r"put32\(out \+ 4,\s*4 \+ 8 \+ 20 \+ 8 \+ 4 \+ 8 \+ data_bytes\)", body):
+    print("  RIFF size is not (header - 8) + data"); sys.exit(1)
+if "return 60;" not in body:
+    print("  the header does not say it is 60 bytes long"); sys.exit(1)
+EOF
+
+echo "════ the microphone conditioning ════"
+# 🚨 Filter before compress. A DC offset eats the ADPCM step range, so the same
+#    speech is encoded coarser for nothing; and the hardware gain has to leave
+#    the AGC room to work, or the front end is already clipping.
+grep -q "dsp_process(&s_dsp, pcm, CHUNK)" main/rec_store.c \
+  && ok "the samples are filtered on the way in" || bad "the conditioning is not in the recording path"
+python3 - <<'EOF' && ok "the conditioning happens before the encoder, not after" || bad "the order is wrong: compressing then filtering wastes the step range"
+import sys
+t = open("main/rec_store.c", encoding="utf-8").read()
+d = t.find("dsp_process(&s_dsp, pcm, CHUNK)")
+a = t.find("adpcm_encode_block(pcm, CHUNK, blk)")
+if d < 0 or a < 0:
+    print("  could not find both calls"); sys.exit(1)
+if d > a:
+    print("  adpcm_encode_block runs first"); sys.exit(1)
+EOF
+grep -q "define MIC_GAIN_DB             18.0f" main/audio_dsp.h \
+  && ok "the hardware gain leaves the AGC headroom" || bad "the front end is pinned at the old 30 dB"
 
 echo "════ flash headroom ════"
 # 🚨 A file still being written must not be read. A build was left running in the
@@ -343,9 +420,12 @@ if [ -f build/badge_fw.bin ] && [ ! -f build/.ninja_lock ]; then
   SZ=$(stat -c%s build/badge_fw.bin)
   LEFT=$(( 6*1024*1024 - SZ ))
   echo "  app $(( SZ/1024 ))KB · $(( LEFT/1024 ))KB left"
-  # 🚨 An orb photograph is 256 KB each. Adding more means reworking the partitions.
+  # 🚨 What grows here is baked artwork and Chinese fonts, and both only ever
+  #    grow. 512 KB is the margin that says the next one still fits; below it,
+  #    the answer is to shrink a font subset or rework the partitions, not to
+  #    shorten a label.
   [ "$LEFT" -gt 524288 ] && ok "at least 512KB free" \
-    || bad "the app partition is tight — one orb photograph is 256KB"
+    || bad "the app partition is tight — the fonts and icons have nowhere left to grow"
 fi
 
 echo "════ the sdkconfig defaults ════"
@@ -385,6 +465,170 @@ if missing:
     print("  not in main/CMakeLists.txt:", " · ".join(sorted(missing))); sys.exit(1)
 EOF
 
+echo "════ the fonts, and the characters nothing has ════"
+# 🚨 Every character a label draws has to exist in the font that draws it, and a
+#    missing one is a blank box — on a device, in front of a person, and nothing
+#    else in the build so much as notices. mkfonts.py decides which characters
+#    are needed and stamps the count into each file it writes, so this asks it
+#    rather than reimplementing the rule: the harness doing its own version of
+#    the rule is how the punctuation went missing for two rounds.
+python3 tools/mkfonts.py --check \
+  && ok "the baked fonts cover every character the interface draws above ASCII" \
+  || bad "a label uses a character the fonts were not baked with (run tools/mkfonts.py)"
+
+# 🚨 And the assumption underneath that check, verified rather than trusted.
+#    mkfonts.py needs to know what Montserrat already covers, so it can leave
+#    those characters out. If it is wrong in the direction of "Montserrat has
+#    this" the character is left out of the Chinese face and falls back to a font
+#    that does not have it — a blank box, from a wrong constant. So the set is
+#    read out of the font LVGL ships and compared against the constant.
+python3 - <<'EOF' && ok "exactly the characters Montserrat has are left to Montserrat" || bad "mkfonts.py is wrong about what Montserrat covers, which makes blank boxes"
+import re, sys
+src = open("sim/lvgl/src/font/lv_font_montserrat_16.c", encoding="utf-8").read()
+
+cmaps = re.findall(r"\.range_start = (\d+), \.range_length = (\d+), "
+                   r"\.glyph_id_start = \d+,\s*\n\s*\.unicode_list = (\w+), "
+                   r".*?\.list_length = \d+", src, re.S)
+lists = {m.group(1): [int(v, 16) for v in re.findall(r"0x[0-9a-fA-F]+", m.group(2))]
+         for m in re.finditer(r"static const uint16_t (unicode_list_\d+)\[\] = \{(.*?)\};",
+                              src, re.S)}
+
+have = set()
+for start, length, ulist in cmaps:
+    start, length = int(start), int(length)
+    if ulist == "NULL":
+        have.update(range(start, start + length))
+    else:
+        # 🚨 The sparse list holds offsets from the range's own start, not
+        #    codepoints. Reading them as codepoints gives a set of characters
+        #    that are all in Unicode's private use area, which looks plausible
+        #    and is completely wrong.
+        have.update(start + v for v in lists.get(ulist, []))
+
+# The private use area is the LV_SYMBOL_* icons, deliberately not our problem.
+real = {c for c in have if not (0xE000 <= c <= 0xF8FF)}
+claimed = set()
+m = re.search(r"MONTSERRAT_HAS\s*=\s*\{([^}]*)\}", open("tools/mkfonts.py", encoding="utf-8").read())
+if m:
+    claimed = {int(v, 16) for v in re.findall(r"0x[0-9a-fA-F]+", m.group(1))}
+
+# 🚨 Ignore the ASCII block: Latin is not baked into the Chinese faces by design,
+#    and every printable ASCII character is in Montserrat anyway.
+real = {c for c in real if c >= 128}
+if real != claimed:
+    print("  Montserrat actually has %s" % ", ".join("U+%04X" % c for c in sorted(real)))
+    print("  mkfonts.py says it has %s" % ", ".join("U+%04X" % c for c in sorted(claimed)))
+    print("  a character left out on a false assumption is a blank box on the screen")
+    sys.exit(1)
+print("      Montserrat adds %s above ASCII" % ", ".join("U+%04X" % c for c in sorted(real)))
+EOF
+# 🚨 And the other half of the same trap: 32, 40 and 48 have no Chinese face
+#    baked, on purpose — what is drawn that large is digits, symbols and the
+#    words REC and OK. Chinese that strays into one of those labels shows up as
+#    boxes. The statement is taken whole (previous `;` to next) rather than by
+#    line, because these calls are wrapped.
+python3 - <<'EOF' && ok "no Chinese is drawn at a size that has no Chinese font" || bad "a label draws Chinese at 32/40/48, which have no Chinese face"
+import glob, os, re, sys
+CJK = re.compile(r"[\u4e00-\u9fff]")
+bad = []
+for path in sorted(glob.glob("main/**/*.c", recursive=True)):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        src = fh.read()
+    for m in re.finditer(r"&lv_font_montserrat_(32|40|48)\b", src):
+        a = src.rfind(";", 0, m.start()) + 1
+        b = src.find(";", m.end())
+        if b < 0: b = len(src)
+        if CJK.search(src[a:b]):
+            line = src[:m.start()].count("\n") + 1
+            bad.append("%s:%d" % (os.path.relpath(path), line))
+if bad:
+    print("  Chinese drawn at a Latin-only size: " + ", ".join(bad)); sys.exit(1)
+EOF
+
+echo "════ the recording receiver ════"
+# 🚨 The protocol's whole safety argument rests on cases that only appear when
+#    something has already gone wrong — a replayed chunk, a gap, a bad checksum,
+#    a power cut before finalize. None of them is reachable by reading the code,
+#    and all of them are silent when broken: the file is the right length and
+#    the audio is wrong, or the badge deletes a recording the server never
+#    finished. So the server is walked through each of them for real.
+if [ -f tools/serve/test_protocol.py ]; then
+  if python3 tools/serve/test_protocol.py >/tmp/badge-recv-test.log 2>&1; then
+    ok "the upload protocol survives replays, gaps, bad checksums and a cut before finalize"
+  else
+    bad "the upload protocol mishandles one of the cases that matter"
+    tail -20 /tmp/badge-recv-test.log | sed 's/^/      /'
+  fi
+fi
+# 🚨 The WAV header exists in three places now — the firmware that records, the
+#    firmware that exports over USB, and the server that joins the chunks. They
+#    have already disagreed once (48 bytes against a correct 60, RIFF length four
+#    short), and a disagreement here produces a file that plays and sounds wrong.
+# 🚨 The header check below compares the *values* in three files. That is not
+#    the same as the bytes coming out equal, and it cannot see the decoder at
+#    all — a decoder whose shift order is backwards still returns plausible
+#    numbers, and the noise it produces still sounds like speech. So the whole
+#    chain is also walked for real: the firmware's own encoder, the real
+#    protocol, the real server, the firmware's own decoder, and the signal
+#    compared on the far side.
+if command -v cc >/dev/null 2>&1 && [ -f tools/serve/test_roundtrip.py ]; then
+  if python3 tools/serve/test_roundtrip.py >/tmp/badge-roundtrip.log 2>&1; then
+    ok "a recording survives encode → upload → server → decode unchanged"
+  else
+    bad "a recording does not survive the trip through the server"
+    tail -20 /tmp/badge-roundtrip.log | sed 's/^/      /'
+  fi
+fi
+python3 - <<'EOF' && ok "the WAV header is the same 60 bytes everywhere" || bad "the WAV header has drifted between the firmware and the server"
+import re, sys
+
+h   = open("main/adpcm.h", encoding="utf-8").read()
+srv = open("tools/serve/recv_server.py", encoding="utf-8").read()
+
+def c_int(name):
+    m = re.search(r"#define\s+%s\s+(\d+)" % name, h)
+    return int(m.group(1)) if m else None
+
+def py_int(name):
+    m = re.search(r"^%s\s*=\s*(\d+)" % name, srv, re.M)
+    return int(m.group(1)) if m else None
+
+# 🚨 The three that decide whether the sound is right. A header length or a
+#    block size that disagrees produces a file that opens, plays, and is wrong.
+for name, want in (("ADPCM_WAV_HEADER_BYTES", 60),
+                   ("ADPCM_BLOCK_BYTES", 256),
+                   ("ADPCM_BLOCK_SAMPLES", 505),
+                   ("ADPCM_SAMPLE_RATE", 16000)):
+    a, b = c_int(name), py_int(name)
+    if a is None or b is None:
+        print("  %s: firmware has %r, server has %r" % (name, a, b)); sys.exit(1)
+    if a != b or a != want:
+        print("  %s: firmware %d, server %d, expected %d" % (name, a, b, want)); sys.exit(1)
+
+# 🚨 And the RIFF length, which is the field that was actually wrong once: it is
+#    the file length minus eight, so 4 + 8 + 20 + 8 + 4 + 8 + data = 52 + data.
+if 'struct.pack("<I", 4 + 8 + 20 + 8 + 4 + 8 + data_bytes)' not in srv:
+    print("  the server's RIFF length is not (header - 8) + data"); sys.exit(1)
+if "put32(out + 4, 4 + 8 + 20 + 8 + 4 + 8 + data_bytes)" not in \
+        open("main/adpcm.c", encoding="utf-8").read():
+    print("  the firmware's RIFF length is not (header - 8) + data"); sys.exit(1)
+EOF
+
+echo "════ the board-only sources parse ════"
+# 🚨 sim/build.py leaves out everything in ESP_ONLY, which is exactly the half
+#    that talks to the hardware. With ESP-IDF installed idf.py build covers it;
+#    without it, nothing did, and a typo in rec_store.c was found by flashing a
+#    badge rather than by running a command. tools/syntaxcheck.sh parses them
+#    against tools/espstub.
+if [ -f tools/syntaxcheck.sh ]; then
+  if bash tools/syntaxcheck.sh 2>&1 | grep -q "✗"; then
+    bad "a board-only source does not parse"
+    bash tools/syntaxcheck.sh 2>&1 | grep -A6 "✗" | sed 's/^/      /'
+  else
+    ok "the board-only sources parse"
+  fi
+fi
+
 echo "════ timers (saving power once pinned the CPU) ════"
 if grep -rn 'lv_timer_set_period(t' main/apps/*.c >/dev/null 2>&1; then
   bad "the period is changed inside a timer callback — lv_timer_handler goes round forever"
@@ -393,6 +637,72 @@ else
 fi
 grep -q 'if (++skip' main/apps/app_mouse.c \
   && ok "it skips to save power when the screen is off" || bad "the screen-off power saving is missing"
+
+echo "════ what keeps running with the display off ════"
+# 🚨 The rule: an LVGL timer stops when the display does (idle_timers), so
+#    anything that has to happen anyway is a port timer (port.h). Getting this
+#    wrong is silent — the feature works all day on a desk and fails in a pocket.
+python3 - <<'EOF' && ok "the alarm, the journal and the clock sync are outside LVGL's timers" || bad "something that has to run in the dark is on an LVGL timer"
+import re, sys
+src = open("main/launcher.c", encoding="utf-8").read()
+bad = []
+for fn in ("alarm_tick_cb", "batt_log_cb", "housekeep_cb", "ble_off_cb"):
+    if re.search(r"lv_timer_create\(\s*%s" % fn, src):
+        bad.append(fn + " is on an LVGL timer")
+if not re.search(r'port_timer_start\("alarm"', src):
+    bad.append("the alarm is not started as a port timer at all")
+# 🚨 And the alarm must not be back inside idle_cb, which is paused along with
+#    the display. That is exactly the shape the bug had.
+m = re.search(r"static void idle_cb\(lv_timer_t \*t\)\n\{(.*?)\n\}\n", src, re.S)
+if not m:
+    bad.append("cannot find idle_cb")
+elif "alarm_tick()" in m.group(1):
+    bad.append("the alarm is checked from idle_cb again, which stops with the display")
+if bad:
+    print("  " + " · ".join(bad)); sys.exit(1)
+EOF
+
+echo "════ the display going dark ════"
+# 🚨 Two invariants make the blanket pause safe, and both break by accident:
+#      1. idle_timers has to walk every timer rather than a hand-kept list — a
+#         list goes stale, and the ones it misses are the ones nobody meant to
+#         leave running.
+#      2. only launcher.c may pause a timer. The blanket resume assumes "was
+#         already paused" means "the launcher paused it", so a second file
+#         pausing its own would have it resumed behind that file's back.
+python3 - <<'EOF' && ok "going dark pauses every LVGL timer, and only the launcher pauses any" || bad "the display-off timer rule has been broken"
+import glob, os, re, sys
+src = open("main/launcher.c", encoding="utf-8").read()
+m = re.search(r"static void idle_timers\(bool screen_on\)\n\{(.*?)\n\}\n", src, re.S)
+if not m:
+    print("  cannot find idle_timers"); sys.exit(1)
+if "lv_timer_get_next(NULL)" not in m.group(1):
+    print("  idle_timers no longer walks the timer list"); sys.exit(1)
+bad = []
+for path in glob.glob("main/**/*.c", recursive=True):
+    if os.path.basename(path) == "launcher.c": continue
+    t = open(path, encoding="utf-8").read()
+    if re.search(r"lv_timer_(pause|resume)\s*\(", t):
+        bad.append(path)
+if bad:
+    print("  pauses its own timers, which the blanket resume would undo:", ", ".join(bad))
+    sys.exit(1)
+EOF
+# 🚨 The escape hatch is opt-in in writing: an app declares that it needs its
+#    timers in the dark, rather than launcher.c keeping a list of which do.
+grep -q "timers_dark" main/app.h \
+  && ok "an app can ask for its timers to survive the display going off" \
+  || bad "there is no way to say a timer must keep going in the dark"
+python3 - <<'EOF' && ok "only the clock claims the dark exemption" || bad "more apps claim it than were reasoned about"
+import glob, sys
+users = [p for p in sorted(glob.glob("main/apps/*.c"))
+         if ".timers_dark = true" in open(p, encoding="utf-8").read()]
+if users != ["main/apps/app_clock.c"]:
+    print("  claims it:", ", ".join(users) or "nobody")
+    print("  the countdown and the stopwatch are the whole reason this exists —")
+    print("  recording runs in its own task and the air mouse should stop with the screen")
+    sys.exit(1)
+EOF
 
 echo "════ breakout levels ════"
 # 🚨 The meaning is checked, not the name. The three below were actually walked into on 09-10.
@@ -520,12 +830,158 @@ python3 tools/sim-hold-check.py && ok "a long press still lands during a rebuild
 echo "════ does the WiFi screen get stuck when no answer comes ════"
 python3 tools/sim-wifi-stall-check.py && ok "the scan screen finds its way out" || bad "the scan screen is stuck (asking again has no bound)"
 
-echo "════ do the home pages still turn ════"
-# 🚨 A gesture reaches only the pressed object. On 09-11 swapping the wallpaper
-#    for an lv_obj_create() — clickable by default, unlike the image it replaced —
-#    made the wallpaper swallow every swipe on the bare background and the pages
-#    stopped turning. Nothing about the source looks wrong, so it is swiped for real.
-python3 tools/sim-swipe-check.py >/dev/null 2>&1 && ok "swiping left and right turns the home pages" || bad "the home pages do not turn (something on home is eating the gesture)"
+echo "════ does anything still run in the dark ════"
+# 🚨 Source-level checks cannot see this. The two kinds of timer callback look
+#    identical; what differs is which clock drives them, and the only honest way
+#    to check it is to let the display time out by itself and see whether the
+#    journal is still writing afterwards.
+python3 tools/sim-dark-timer-check.py >/dev/null 2>&1 \
+  && ok "the timers that must outlive the display still fire with it dark" \
+  || bad "the display going dark stops something that has to keep running (see sim-dark-timer-check.py)"
+
+echo "════ the recording screen ════"
+# 🚨 A meter and a pause are both things that look finished while doing nothing.
+#    A bar whose width is set from a level that never changes still looks like a
+#    bar, and a pause whose clock keeps running still looks like a pause — the
+#    file is just shorter than the screen said. So the meter is measured out of
+#    the framebuffer and the clock is compared against itself several seconds
+#    later, which is the only way to tell stopped from slow.
+if python3 tools/sim-rec-check.py >/tmp/badge-rec-check.log 2>&1; then
+  ok "the meter tracks the microphone and a pause really stops the clock"
+else
+  bad "the recording screen's meter or pause does not do what it says"
+  sed 's/^/      /' /tmp/badge-rec-check.log
+fi
+
+echo "════ the icons' edges ════"
+# 🚨 Both halves of this were arrived at by measuring, and both are one line of
+#    code that reads like a detail and is not:
+#      · One reduction, not two. The builders used to shrink to ICON and leave
+#        emit_icon to shrink that to ICON_OUT — a clean large reduction followed
+#        by a small one, and the small one is where the aliasing lives.
+#      · BOX for a large reduction, LANCZOS for a small one. LANCZOS has negative
+#        lobes and rings; on the clock's thin rim that produced a beaded ring
+#        instead of a continuous one, which is what "jagged" turned out to mean.
+#        BOX is a plain area average with no ringing — but at a small reduction
+#        it has almost no support and behaves like a nearest neighbour, so it is
+#        not the answer everywhere either.
+#    The failure is a picture rather than a number, so this checks the shape of
+#    the code; the picture itself is judged from the screenshots.
+python3 - <<'EOF' && ok "the icons are reduced once, with a filter that suits the ratio" || bad "the icon downscale will ring or alias — see emit_icon in tools/mkassets.py"
+import re, sys
+src = open("tools/mkassets.py", encoding="utf-8").read()
+bad = []
+hits = list(re.finditer(r"resize\(\(ICON_OUT", src))
+if not hits:
+    bad.append("nothing resizes to ICON_OUT")
+elif len(hits) > 1:
+    bad.append("%d places resize to ICON_OUT" % len(hits))
+if re.search(r"resize\(\(ICON,\s*ICON\)", src):
+    bad.append("something still shrinks to ICON first, which puts a second reduction in the way")
+m = re.search(r"img\s*=\s*img\.resize\(\(ICON_OUT, ICON_OUT\),\s*(.*?)\)\n", src, re.S)
+if not m:
+    bad.append("cannot find the resize to ICON_OUT")
+elif "Image.BOX if" not in m.group(1) or "LANCZOS" not in m.group(1):
+    bad.append("the filter is not chosen from the reduction ratio")
+if bad:
+    print("  " + " · ".join(bad)); sys.exit(1)
+print("      one reduction: BOX at 2x or more, LANCZOS below")
+EOF
+
+echo "════ the home ring ════"
+# 🚨 Home was two pages and the sideways swipe turned them. Both are gone, and
+#    so is sim-swipe-check.py, which had nothing left to swipe. What replaced it
+#    is the arithmetic the ring rests on — and it is worth having, because every
+#    term in it was changed by hand at some point and the failure mode is a
+#    label running off the edge of a round screen, which no compiler notices.
+#
+#    Two things are asserted: that ICON_D matches the size the icons were baked
+#    at (or LVGL rescales every one of them and the grain comes back), and that
+#    every icon and label lands inside the circle. Four Chinese characters is the
+#    worst case a label can be.
+python3 - <<'EOF' && ok "the ring fits the circle, and the icons were baked at this size" || bad "the home ring does not fit, or ICON_D and the baked size disagree"
+import math, re, sys
+src = open("main/launcher.c", encoding="utf-8").read()
+mk  = open("tools/mkassets.py", encoding="utf-8").read()
+
+def num(text, name):
+    # A C constant is `#define NAME 123`; the baked size is a Python assignment.
+    for pat in (r"^#define\s+%s\s+(\d+)" % name, r"^%s\s*=\s*(\d+)" % name):
+        m = re.search(pat, text, re.M)
+        if m: return int(m.group(1))
+    return None
+
+ring, icon, scr = num(src, "RING_R"), num(src, "ICON_D"), num(src, "SCREEN_D")
+out = num(mk, "ICON_OUT")
+if None in (ring, icon, scr, out):
+    print("  cannot read RING_R / ICON_D / SCREEN_D / ICON_OUT"); sys.exit(1)
+if icon != out:
+    print("  ICON_D is %d but mkassets emits %d" % (icon, out)); sys.exit(1)
+
+apps = re.search(r"static const badge_app_t \*const s_apps\[\] = \{(.*?)\};", src, re.S)
+if not apps: print("  cannot find the ring"); sys.exit(1)
+n = apps.group(1).count("&app_")
+if n < 2: print("  only %d icons on the ring" % n); sys.exit(1)
+
+# 🚨 The label's size and offset are read out of launcher.c rather than written
+#    here as well. They used to be, and the numbers in the two places came apart
+#    the moment the label was made bigger — which is the failure this check
+#    exists to catch, happening to the check itself.
+m = re.search(r"int ny = y \+ ICON_D / 2 \+ (\d+);", src)
+if not m: print("  cannot find the label offset"); sys.exit(1)
+loff = int(m.group(1))
+m = re.search(r"lv_obj_set_style_text_font\(nm, &font_zh_(\d+)_bold", src)
+if not m: print("  cannot find the label font"); sys.exit(1)
+lsize = int(m.group(1))
+# and the bold face has to actually be baked at that size
+mksrc = open("tools/mkfonts.py", encoding="utf-8").read()
+m = re.search(r"BOLD_SIZES\s*=\s*\[([^\]]*)\]", mksrc)
+bold_sizes = [int(x) for x in re.findall(r"\d+", m.group(1))] if m else []
+if lsize not in bold_sizes:
+    print("  the label is %d px but mkfonts bakes bold at %s" % (lsize, bold_sizes or "nothing"))
+    sys.exit(1)
+
+# Four characters is the worst case a label can be (空中鼠标).
+half_w = 4 * lsize / 2.0
+half_h = lsize / 2.0
+r, bad = scr / 2.0, []
+pos = []
+for i in range(n):
+    ang = -math.pi / 2 + i * (2 * math.pi / n)
+    pos.append((math.cos(ang) * ring, math.sin(ang) * ring))
+labs = [(x, y + icon / 2 + loff) for x, y in pos]
+
+# 🚨 Four constraints, and the third and fourth are the ones this check was
+#    missing when the labels were first enlarged. It passed a layout whose
+#    labels sat on top of the neighbouring icons — because a label is placed
+#    radially outside its own icon, it reaches sideways into the angular sector
+#    of the icons either side of it, and nothing that only compares each element
+#    against the circle can see that.
+for i in range(n):
+    x, y = pos[i]
+    if math.hypot(abs(x) + icon / 2, abs(y) + icon / 2) > r:
+        bad.append("icon %d is off the edge" % i)
+for i, (x, y) in enumerate(labs):
+    if math.hypot(abs(x) + half_w, abs(y) + half_h) > r:
+        bad.append("label %d runs off the edge" % i)
+for i in range(n):
+    for j in range(i + 1, n):
+        if math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1]) < icon + 8:
+            bad.append("icons %d and %d are touching" % (i, j))
+        if (abs(labs[i][0] - labs[j][0]) < half_w * 2 + 6 and
+                abs(labs[i][1] - labs[j][1]) < half_h * 2 + 6):
+            bad.append("labels %d and %d overlap" % (i, j))
+for i in range(n):
+    for j in range(n):
+        if i == j: continue
+        dx = max(abs(labs[i][0] - pos[j][0]) - half_w, 0)
+        dy = max(abs(labs[i][1] - pos[j][1]) - half_h, 0)
+        if math.hypot(dx, dy) < icon / 2 + 4:
+            bad.append("label %d sits on icon %d" % (i, j))
+if bad:
+    print("  " + " · ".join(sorted(set(bad)))); sys.exit(1)
+print("  %d icons · ICON_D %d · RING_R %d · labels %d px" % (n, icon, ring, lsize))
+EOF
 
 echo "════ do large arrays hold internal RAM permanently ════"
 if [ ! -f build/badge_fw.map ]; then

@@ -4,7 +4,7 @@
  * own static and never hands it out. Without the handle there is no way to
  * call esp_lcd_panel_disp_on_off(), and therefore no way to turn the display
  * *actually* off. The BSP's backlight_off only drops the brightness to zero
- * and the panel keeps scanning — measured, "off" still drew 76 mV/h against
+ * and the panel keeps scanning — measured, "关" still drew 76 mV/h against
  * 171 on, or 44% of being on.
  *
  * Vendoring the whole BSP is not necessary. bsp_display_new() is public and
@@ -227,7 +227,7 @@ void badge_display_brightness(int percent)
 {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
-    if (percent > 0) s_bright = percent;      /* 0 means "off" and is not remembered */
+    if (percent > 0) s_bright = percent;      /* 0 means "关" and is not remembered */
     uint8_t v = (uint8_t)(percent * 255 / 100);
     panel_cmd(0x51, &v, 1);
 }

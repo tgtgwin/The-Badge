@@ -116,6 +116,10 @@ static void advance(uint32_t us)
         g_sim_us += chunk;
         done += chunk;
         lv_timer_handler();
+        /* 🚨 The timers that are deliberately not LVGL timers, so they keep
+         * firing when idle_timers() has paused everything with a display. On
+         * the board esp_timer does this on its own and the call is empty. */
+        port_timer_pump();
     }
 }
 
@@ -343,16 +347,6 @@ static void serve_loop(void)
             fflush(stdout);
             break;
         }
-        /* Sets the orb tilt directly in degrees (for checking) */
-        /* How long one frame took to draw, in microseconds — the window for measuring power */
-        case 'Z': {
-            extern void orb_debug(float *lon, uint32_t *render_us);
-            float lon = 0; uint32_t us = 0;
-            orb_debug(&lon, &us);
-            printf("Z %.4f %u\n", lon, (unsigned)us);
-            fflush(stdout);
-            break;
-        }
         /* Fake IMU tilt — "I x y z" (mg). No arguments means a device with no IMU */
         case 'I': {
             extern void sim_imu_set(float x, float y, float z);
@@ -369,31 +363,6 @@ static void serve_loop(void)
             float rx, ry, rz;
             if (sscanf(line + 1, "%f %f %f", &rx, &ry, &rz) == 3) sim_gyro_set(rx, ry, rz);
             else sim_gyro_off();
-            break;
-        }
-        case 'Y': {
-            extern void orb_set_lean_deg(float deg);
-            orb_set_lean_deg((float)atof(line + 1));
-            break;
-        }
-        case 'O': {
-            extern void orb_set_tilt_deg(float deg);
-            orb_set_tilt_deg((float)atof(line + 1));
-            break;
-        }
-        /* Water state — tilt, boat position, total volume (to see whether it is conserved) */
-        case 'W' + 128: break;
-        case 'V': {
-            extern void water_debug(float *deg, float *boat, float *volume);
-            float d = 0, b = 0, v = 0;
-            water_debug(&d, &b, &v);
-            printf("WATER %.2f %.1f %.1f\n", d, b, v);
-            fflush(stdout);
-            break;
-        }
-        case 'L': {
-            extern void orb_set_lon(float lon);
-            orb_set_lon((float)atof(line + 1));
             break;
         }
         case 'M': {
@@ -439,19 +408,16 @@ static void serve_loop(void)
             break;
         }
         case 'A': {
-            /* 🚨 Water and the orbs were missing. Both sit inside the Games
-             * list and had to be reached by tapping coordinates, but that list
-             * shows only three and the rest need scrolling — so what
-             * sim-exit-check reported as "Water passed" was actually tapping
-             * Marble (09-09). app.h already has a way to open them straight
-             * from home, so it goes here too. A 6 = water, A 7 = orbs. */
-            /* 🚨 Settings goes in as well. It had to be tapped by coordinate in
-             * the home list, and that list needs scrolling, so the check opened
-             * the wrong app and still reported a pass (water and the orbs came
-             * in for the same reason on 09-09). A 8 = settings. */
+            /* 🚨 Opening an app by tapping a coordinate on the home screen was
+             * how this started, and it reported "passed" while tapping the
+             * wrong thing: the ring scrolls in the list view and the app the
+             * check meant to reach was off the end of it (09-09). Opening it by
+             * name sidesteps the layout entirely.
+             * 🚨 Anything added here changes the numbers the tools use. The
+             *    tools/capture-*.py and sim-*.py scripts index into this list. */
             static const badge_app_t *const list[] = {
-                &app_mouse, &app_meet, &app_keys, &app_calc, &app_games, &app_clock,
-                &app_water, &app_orb, &app_settings,
+                &app_games, &app_mouse, &app_clock, &app_calc, &app_meet,
+                &app_keys, &app_settings,
             };
             int n = atoi(line + 1);
             if (n >= 0 && n < (int)(sizeof(list) / sizeof(list[0]))) launcher_open(list[n]);

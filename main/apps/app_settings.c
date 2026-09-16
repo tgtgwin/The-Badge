@@ -18,6 +18,7 @@
  * uses it) — if it ever needs changing, change the value in code rather than
  * bringing the page back. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include "display.h"
 #include <stdio.h>
@@ -84,7 +85,7 @@ static lv_obj_t *title(lv_obj_t *p, const char *txt)
 {
     lv_obj_t *l = lv_label_create(p);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_zh_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(0x8A8A90), 0);
     lv_obj_align(l, LV_ALIGN_CENTER, 0, -140);
     return l;
@@ -152,7 +153,7 @@ static void sound_cb(lv_event_t *e)
     (void)e;
     s_sound_on = !s_sound_on;
     port_tone_volume(s_sound_on ? s_volume : 0);
-    lv_label_set_text(s_sound_btn_lbl, s_sound_on ? "ON" : "OFF");
+    lv_label_set_text(s_sound_btn_lbl, s_sound_on ? "开" : "关");
     settings_save();
 }
 
@@ -168,7 +169,7 @@ static void rot_cb(lv_event_t *e)
     (void)e;
     bool on = !launcher_get_autorotate();
     launcher_set_autorotate(on);
-    lv_label_set_text(s_rot_lbl, on ? "auto-rotate ON" : "auto-rotate OFF");
+    lv_label_set_text(s_rot_lbl, on ? "自动旋转 开" : "自动旋转 关");
 }
 
 static void timeout_cb(lv_event_t *e)
@@ -220,7 +221,7 @@ static void poll_cb(lv_timer_t *t)
     list_paint();                       /* battery and connection state live in the list */
 
     if (!s_net_lbl || !lv_obj_is_valid(s_net_lbl)) return;   /* the clock page is closed */
-    static const char *TXT[] = { "not set", "idle", "connecting", "synced", "failed" };
+    static const char *TXT[] = { "未设置", "空闲", "connecting", "已同步", "失败" };
     static const uint32_t COL[] = { 0x666666, 0x8A8A8A, 0xE0B33A, 0x5BD48A, 0xE06A6A };
     net_state_t st = port_time_sync_state();
     lv_label_set_text(s_net_lbl, TXT[st]);
@@ -242,7 +243,7 @@ static lv_obj_t *pill(lv_obj_t *p, const char *txt, int w, int h, int dx, int dy
     if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, ud);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_zh_20, 0);
     lv_obj_center(l);
     return b;
 }
@@ -277,7 +278,7 @@ static lv_obj_t *page_open(const char *name)
 static void open_bright(lv_event_t *e)
 {
     (void)e;
-    lv_obj_t *p = page_open("Brightness");
+    lv_obj_t *p = page_open("亮度");
     if (!p) return;
     s_bright_lbl = big(p, 0);
     int b = port_brightness_get();
@@ -288,12 +289,12 @@ static void open_bright(lv_event_t *e)
 static void open_sound(lv_event_t *e)
 {
     (void)e;
-    lv_obj_t *p = page_open("Sound");
+    lv_obj_t *p = page_open("声音");
     if (!p) return;
     s_vol_lbl = big(p, -26);
     lv_label_set_text_fmt(s_vol_lbl, "%d%%", s_volume);
     ring(p, 0, 100, s_volume, vol_cb, 0x5BD48A);
-    lv_obj_t *sb = pill(p, s_sound_on ? "ON" : "OFF", 140, 60, 0, 66,
+    lv_obj_t *sb = pill(p, s_sound_on ? "开" : "关", 140, 60, 0, 66,
                         0x1C1C22, sound_cb, NULL);
     s_sound_btn_lbl = lv_obj_get_child(sb, 0);
 }
@@ -301,9 +302,9 @@ static void open_sound(lv_event_t *e)
 static void open_screen(lv_event_t *e)
 {
     (void)e;
-    lv_obj_t *p = page_open("Screen off");
+    lv_obj_t *p = page_open("息屏");
     if (!p) return;
-    const char *TO_TXT[4] = { "15s", "30s", "60s", "never" };
+    const char *TO_TXT[4] = { "15 秒", "30 秒", "60 秒", "从不" };
     int cur = launcher_get_timeout();
     for (int i = 0; i < 4; i++) {
         s_to_btn[i] = pill(p, TO_TXT[i], 150, 68,
@@ -311,7 +312,7 @@ static void open_screen(lv_event_t *e)
                            TIMEOUTS[i] == cur ? 0x2E6E9E : 0x1C1C22,
                            timeout_cb, (void *)(intptr_t)i);
     }
-    lv_obj_t *rb = pill(p, launcher_get_autorotate() ? "auto-rotate ON" : "auto-rotate OFF",
+    lv_obj_t *rb = pill(p, launcher_get_autorotate() ? "自动旋转 开" : "自动旋转 关",
                         280, 54, 0, 136, 0x1C1C22, rot_cb, NULL);
     s_rot_lbl = lv_obj_get_child(rb, 0);
 }
@@ -319,7 +320,7 @@ static void open_screen(lv_event_t *e)
 static void open_time(lv_event_t *e)
 {
     (void)e;
-    lv_obj_t *p = page_open("Time");
+    lv_obj_t *p = page_open("时间");
     if (!p) return;
     lv_obj_t *rl = lv_roller_create(p);
     char opts[TZ_CNT * 14];
@@ -332,7 +333,7 @@ static void open_time(lv_event_t *e)
     lv_roller_set_visible_row_count(rl, 3);
     lv_obj_set_width(rl, 300);
     lv_obj_align(rl, LV_ALIGN_CENTER, 0, -34);
-    lv_obj_set_style_text_font(rl, &lv_font_montserrat_26, 0);
+    lv_obj_set_style_text_font(rl, &font_zh_26, 0);
     lv_obj_set_style_bg_color(rl, lv_color_hex(0x141418), 0);
     lv_obj_set_style_border_width(rl, 0, 0);
     lv_obj_set_style_radius(rl, 22, 0);
@@ -340,9 +341,9 @@ static void open_time(lv_event_t *e)
     lv_roller_set_selected(rl, sel, LV_ANIM_OFF);
     lv_obj_add_event_cb(rl, tz_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    pill(p, "sync now", 220, 62, 0, 74, 0x1C1C22, sync_cb, NULL);
+    pill(p, "立即校时", 220, 62, 0, 74, 0x1C1C22, sync_cb, NULL);
     s_net_lbl = lv_label_create(p);
-    lv_obj_set_style_text_font(s_net_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_net_lbl, &font_zh_16, 0);
     lv_obj_align(s_net_lbl, LV_ALIGN_CENTER, 0, 136);
     poll_cb(NULL);
 }
@@ -380,13 +381,13 @@ static lv_obj_t *menu_row(lv_obj_t *parent, const char *name, lv_event_cb_t cb)
 
     lv_obj_t *t = lv_label_create(b);
     lv_label_set_text(t, name);
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(t, &font_zh_18, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(cb ? 0xE8ECF0 : 0x9AA4AE), 0);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *v = lv_label_create(b);
     lv_label_set_text(v, "");
-    lv_obj_set_style_text_font(v, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(v, &font_zh_16, 0);
     lv_obj_set_style_text_color(v, lv_color_hex(0x8A93A6), 0);
     lv_obj_align(v, LV_ALIGN_RIGHT_MID, 0, 0);
     return v;                        /* hand back the value label */
@@ -397,13 +398,13 @@ static void list_paint(void)
 {
     if (!s_sub[0]) return;
     lv_label_set_text_fmt(s_sub[0], "%d%%", port_brightness_get());
-    lv_label_set_text_fmt(s_sub[1], "%d%%  %s", s_volume, s_sound_on ? "on" : "off");
+    lv_label_set_text_fmt(s_sub[1], "%d%%  %s", s_volume, s_sound_on ? "开" : "关");
 
     int to = launcher_get_timeout();
-    if (to <= 0) lv_label_set_text(s_sub[2], "never");
-    else         lv_label_set_text_fmt(s_sub[2], "%ds", to);
+    if (to <= 0) lv_label_set_text(s_sub[2], "从不");
+    else         lv_label_set_text_fmt(s_sub[2], "%d 秒", to);
 
-    static const char *NET[] = { "not set", "idle", "connecting", "synced", "failed" };
+    static const char *NET[] = { "未设置", "空闲", "connecting", "已同步", "失败" };
     int tz = port_get_tz_offset();
     const char *tzn = "";
     for (unsigned i = 0; i < TZ_CNT; i++) if (TZS[i].min == tz) tzn = TZS[i].name;
@@ -414,22 +415,22 @@ static void list_paint(void)
         char ss[33];
         if (port_wifi_slot_get(i, ss, sizeof ss)) saved++;
     }
-    lv_label_set_text_fmt(s_sub[4], "%d saved", saved);
+    lv_label_set_text_fmt(s_sub[4], "%d 条已保存", saved);
 
     hid_host_t hh[HID_HOSTS_MAX];
     int nh = port_hid_hosts(hh, HID_HOSTS_MAX);
-    lv_label_set_text_fmt(s_sub[5], "%d paired", nh);
+    lv_label_set_text_fmt(s_sub[5], "%d 台已配对", nh);
 
     /* The battery gets no page: there is no reason to press again just to see a number. */
     int p = port_battery_percent();
     if (p < 0) {
         lv_label_set_text(s_sub[6], "--");
     } else if (port_battery_plugged()) {
-        lv_label_set_text_fmt(s_sub[6], "%d%%  charging", p);
+        lv_label_set_text_fmt(s_sub[6], "%d%%  充电中", p);
     } else {
         int m = port_battery_minutes_left();
-        if (m < 0) lv_label_set_text_fmt(s_sub[6], "%d%%  measuring", p);
-        else       lv_label_set_text_fmt(s_sub[6], "%d%%  %dh %02dm", p, m / 60, m % 60);
+        if (m < 0) lv_label_set_text_fmt(s_sub[6], "%d%%  测量中", p);
+        else       lv_label_set_text_fmt(s_sub[6], "%d%%  %d 时 %02d 分", p, m / 60, m % 60);
     }
 }
 
@@ -440,8 +441,8 @@ static void enter(lv_obj_t *root)
     s_net_lbl = NULL;
 
     lv_obj_t *t = lv_label_create(root);
-    lv_label_set_text(t, "Settings");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_label_set_text(t, "设置");
+    lv_obj_set_style_text_font(t, &font_zh_20, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x8A93A6), 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, -190);
 
@@ -457,13 +458,13 @@ static void enter(lv_obj_t *root)
     lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(s_list, LV_SCROLLBAR_MODE_OFF);
 
-    s_sub[0] = menu_row(s_list, "Brightness", open_bright);
-    s_sub[1] = menu_row(s_list, "Sound",      open_sound);
-    s_sub[2] = menu_row(s_list, "Screen off", open_screen);
-    s_sub[3] = menu_row(s_list, "Time",       open_time);
-    s_sub[4] = menu_row(s_list, "Wi-Fi",      open_wifi);
-    s_sub[5] = menu_row(s_list, "Bluetooth",  open_hosts);
-    s_sub[6] = menu_row(s_list, "Battery",    NULL);   /* information only */
+    s_sub[0] = menu_row(s_list, "亮度", open_bright);
+    s_sub[1] = menu_row(s_list, "声音",      open_sound);
+    s_sub[2] = menu_row(s_list, "息屏", open_screen);
+    s_sub[3] = menu_row(s_list, "时间",       open_time);
+    s_sub[4] = menu_row(s_list, "无线网络",      open_wifi);
+    s_sub[5] = menu_row(s_list, "蓝牙",  open_hosts);
+    s_sub[6] = menu_row(s_list, "电池",    NULL);   /* information only */
 
     list_paint();
     s_poll = lv_timer_create(poll_cb, 5000, NULL);   /* the battery moves a step every few minutes */
@@ -483,6 +484,6 @@ static void leave(void)
 static lv_color_t tint(void) { return lv_color_hex(0x9AA0A6); }
 
 const badge_app_t app_settings = {
-    .name = "Settings", .icon = LV_SYMBOL_SETTINGS, .tint = tint,
+    .name = "设置", .icon = LV_SYMBOL_SETTINGS, .tint = tint,
     .radio = RADIO_OFF, .enter = enter, .leave = leave,
 };

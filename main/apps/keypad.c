@@ -23,6 +23,7 @@
  * shoulder-surfing risk is low.
  */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include <stdio.h>
 #include <string.h>
@@ -167,7 +168,7 @@ static lv_obj_t *kp_btn(lv_obj_t *root, int dx, int dy, int w, int h,
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void *)(intptr_t)arg);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(l, &font_zh_16, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(0xD2D8E4), 0);
     lv_obj_center(l);
     return b;
@@ -200,7 +201,7 @@ void keypad_open(const char *title, const char *initial,
 
     lv_obj_t *t = lv_label_create(s_scr);
     lv_label_set_text(t, title ? title : "");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(t, &font_zh_16, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x6E7686), 0);
     /* 🚨 At -222 the circle is only 142 px wide and the title was clipped.
      * -206 gives 218 px, which fits. */
@@ -210,7 +211,7 @@ void keypad_open(const char *title, const char *initial,
     s_field = lv_label_create(s_scr);
     lv_obj_set_width(s_field, 156);
     lv_label_set_long_mode(s_field, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_font(s_field, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_field, &font_zh_20, 0);
     lv_obj_set_style_text_color(s_field, lv_color_hex(0xE8ECF0), 0);
     lv_obj_set_style_text_align(s_field, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_align(s_field, LV_ALIGN_CENTER, 0, -172);

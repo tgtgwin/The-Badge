@@ -1,0 +1,45 @@
+# TLS in front of the recording receiver.
+#
+# The badge is a small thing on a phone hotspot with a battery to protect, so it
+# speaks plain HTTP and this does the TLS. That also means the certificate is
+# renewed here, with certbot or whatever else, and never has to be re-flashed
+# into the badge.
+#
+# Drop this in /etc/nginx/conf.d/ and put the real paths in.
+
+server {
+    listen      443 ssl;
+    listen      [::]:443 ssl;
+    server_name badge.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/badge.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/badge.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # 🚨 A phone hotspot is slow and the badge is single-tasking. Buffering a
+    #    chunk before forwarding it costs a whole extra round trip per chunk and
+    #    makes the upload several times longer than it needs to be.
+    proxy_request_buffering off;
+    proxy_buffering         off;
+
+    # 🚨 A little above the badge's 32 KB chunk. Left at the 1 MB default this
+    #    still works, but the smaller number is a limit that means something.
+    client_max_body_size 256k;
+
+    # 🚨 ESP-IDF's HTTP client is not fast at TLS on a 240 MHz core with the
+    #    radio also running. The defaults are usually enough; these are not.
+    proxy_read_timeout    120s;
+    proxy_send_timeout    120s;
+
+    location /api/v1/rec/ {
+        proxy_pass       http://127.0.0.1:8790;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 🚨 Nothing else is served. The uploader is the entire public surface, and
+    #    a stray directory listing here would be a list of somebody's meetings.
+    location / { return 404; }
+}

@@ -1,0 +1,43 @@
+# systemd unit for the recording receiver.
+#
+#   sudo cp badge-recv.service /etc/systemd/system/
+#   sudo systemctl enable --now badge-recv
+#   journalctl -u badge-recv -f
+#
+# 🚨 It listens on the loopback and nothing else. nginx terminates TLS on 443
+#    and proxies to it; there is no configuration in which this port should be
+#    reachable from outside, and no authentication in the server to make that
+#    safe if it were.
+
+[Unit]
+Description=Badge recording receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=badge
+Group=badge
+
+# 🚨 /var/lib/badge-recv must exist and be owned by the user above. Recordings
+#    land here and are the only copy once the badge has deleted its own, so it
+#    wants to be somewhere that is backed up.
+WorkingDirectory=/var/lib/badge-recv
+ExecStart=/usr/bin/python3 /opt/badge-recv/recv_server.py --root /var/lib/badge-recv --host 127.0.0.1 --port 8790
+
+# 🚨 Restart always, and this is not boilerplate. A bug that kills the process
+#    between an upload and its acknowledgement leaves the badge holding a
+#    recording it will not delete, which is recoverable — but one that leaves it
+#    dead for the rest of the meeting is a recording nobody has.
+Restart=always
+RestartSec=2
+
+# Nothing here needs a shell or a home directory.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/badge-recv
+
+[Install]
+WantedBy=multi-user.target

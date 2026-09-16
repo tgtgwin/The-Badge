@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         adpcm.c
+        audio_dsp.c
         display.c
         launcher.c
         lcdface.c
@@ -24,10 +25,8 @@ idf_component_register(
         apps/app_stopwatch.c
         apps/app_timer.c
         apps/app_type.c
-        apps/app_water.c
         apps/host_pick.c
         apps/keypad.c
-        apps/orb.c
         apps/usb_screen.c
         apps/wifi_setup.c
         ble/esp_hid_gap.c
@@ -35,15 +34,19 @@ idf_component_register(
         ble/time_svc.c
         assets/app_icon_calc.c
         assets/app_icon_clock.c
-        assets/app_icon_earth.c
         assets/app_icon_games.c
         assets/app_icon_keys.c
         assets/app_icon_meet.c
-        assets/app_icon_moon.c
         assets/app_icon_mouse.c
         assets/app_icon_present.c
         assets/app_icon_timer.c
         assets/app_icon_type.c
-        assets/app_icon_water.c
         assets/icon_gear.c
-    INCLUDE_DIRS "." "apps" "ble" "usb")
+        fonts/font_zh_14.c
+        fonts/font_zh_16.c
+        fonts/font_zh_18.c
+        fonts/font_zh_18_bold.c
+        fonts/font_zh_20.c
+        fonts/font_zh_24.c
+        fonts/font_zh_26.c
+    INCLUDE_DIRS "." "apps" "ble" "usb" "fonts")

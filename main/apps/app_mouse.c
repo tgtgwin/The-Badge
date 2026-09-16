@@ -10,6 +10,7 @@
  * Clicks come from touch. The only physical button is PWR, which goes through
  * the AXP2101 and cannot be pressed quickly. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
 #include <stdlib.h>
@@ -143,7 +144,6 @@ static int        s_emit_ms = 15;
  * down or arm outstretched both work. Taps still click while it is on —
  * pointing is not much use if you cannot press anything. */
 static bool      s_air;
-static bool      s_air_default;   /* did we come in as the air mouse from home? */
 static lv_obj_t *s_air_btn, *s_air_lbl;
 /* The screen used in air mode: two buttons, left and right click, and nothing
  * else. The hand that points is the hand that presses, so where you press
@@ -230,7 +230,7 @@ static void sens_cb(lv_event_t *e)
     s_sens = (uint8_t)((s_sens + 1) % SENS_N);
     sens_paint();
     sens_save();
-    if (s_hint) lv_label_set_text_fmt(s_hint, "speed %d/%d", s_sens + 1, SENS_N);
+    if (s_hint) lv_label_set_text_fmt(s_hint, "速度 %d/%d", s_sens + 1, SENS_N);
 }
 
 static bool      s_cal_msg;             /* have we said we are zeroing? */
@@ -455,7 +455,7 @@ static lv_obj_t *mk_click_btn(lv_obj_t *root, int dx, int dy, const char *txt, i
     lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_zh_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(0x6E7686), 0);
     lv_obj_align(l, LV_ALIGN_BOTTOM_MID, 0, -14);
     return b;
@@ -467,7 +467,7 @@ static void air_paint(void)
     lv_obj_set_style_bg_color(s_air_btn, lv_color_hex(s_air ? 0x2E6E5A : 0x24242A), 0);
     if (s_air_lbl)
         lv_obj_set_style_text_color(s_air_lbl, lv_color_hex(s_air ? 0xFFFFFF : 0x8A8A90), 0);
-    if (s_hint) lv_label_set_text(s_hint, s_air ? "aim to move" : "tap twice, then drag");
+    if (s_hint) lv_label_set_text(s_hint, s_air ? "指向即移动" : "点两下再拖动");
     /* In air mode, hide the trackpad and show the buttons; and the reverse. */
     #define SHOW(o, on) do { if (o) { if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN); \
                                       else    lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); } } while (0)
@@ -505,7 +505,7 @@ static void air_cb(lv_event_t *e)
     if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) {
         /* For when you are trying to pair a different machine and the phone keeps grabbing it first */
         int n = port_hid_forget_all();
-        if (s_hint) lv_label_set_text_fmt(s_hint, "forgot %d device%s", n, n == 1 ? "" : "s");
+        if (s_hint) lv_label_set_text_fmt(s_hint, "已忘记 %d 台设备", n, n == 1 ? "" : "s");
         return;
     }
     s_air = !s_air;
@@ -568,12 +568,12 @@ static void air_drive_gyro(float rx, float ry, float rz)
         if (s_gb_n < 60000) s_gb_n++;
         s_vel_x = s_vel_y = 0;
         /* Say that a motionless cursor is not a fault */
-        if (s_hint && !s_cal_msg) { lv_label_set_text(s_hint, "hold still"); s_cal_msg = true; }
+        if (s_hint && !s_cal_msg) { lv_label_set_text(s_hint, "保持不动"); s_cal_msg = true; }
         return;
     }
     if (s_cal_msg) {
         s_cal_msg = false;
-        if (s_hint) lv_label_set_text(s_hint, "aim to move");
+        if (s_hint) lv_label_set_text(s_hint, "指向即移动");
     }
 
     float wx = rx - s_gb_x;
@@ -818,7 +818,7 @@ static void hold_cb(lv_timer_t *t)
     if (!s_moved) {
     s_moved = true;            /* so releasing does not also send a left click */
         click(2);
-        lv_label_set_text(s_hint, "right click");
+        lv_label_set_text(s_hint, "右键");
     }
 }
 
@@ -867,7 +867,7 @@ static void pad_cb(lv_event_t *e)
         if (s_drag_lock) {
             /* Start with the button down; it stays down until release. */
             port_hid_mouse(0, 0, 1, 0);
-            lv_label_set_text(s_hint, "drag");
+            lv_label_set_text(s_hint, "拖动");
             lv_obj_set_style_bg_color(s_dot, lv_color_hex(0x5BD48A), 0);
         } else if (s_mode == MODE_PAD) {
             lv_obj_set_style_bg_color(s_dot, lv_color_hex(0x7FB0FF), 0);
@@ -894,7 +894,7 @@ static void pad_cb(lv_event_t *e)
             s_two_acc += dy;
             while (s_two_acc >= TWO_SCROLL_PX)  { s_two_acc -= TWO_SCROLL_PX; port_hid_mouse(0, 0, 0, -1); s_moved = true; }
             while (s_two_acc <= -TWO_SCROLL_PX) { s_two_acc += TWO_SCROLL_PX; port_hid_mouse(0, 0, 0,  1); s_moved = true; }
-            if (s_moved) lv_label_set_text(s_hint, "two-finger scroll");
+            if (s_moved) lv_label_set_text(s_hint, "双指滚动");
         } else if (s_mode == MODE_RING) {
             float ang = atan2f((float)ry, (float)rx) * 57.2958f;
             float d = ang - s_last_ang;
@@ -905,7 +905,7 @@ static void pad_cb(lv_event_t *e)
             while (s_ring_acc >= WHEEL_DEG)  { s_ring_acc -= WHEEL_DEG; port_hid_mouse(0, 0, 0, -1); }
             while (s_ring_acc <= -WHEEL_DEG) { s_ring_acc += WHEEL_DEG; port_hid_mouse(0, 0, 0,  1); }
             if (fabsf(d) > 0.5f) { s_moved = true; cancel_hold(); }
-            lv_label_set_text(s_hint, "scroll");
+            lv_label_set_text(s_hint, "滚动");
         } else {
             if (abs(dx) > MOVE_SLOP || abs(dy) > MOVE_SLOP) { s_moved = true; cancel_hold(); }
             /* Filter the coordinates first, to take the grid noise out. The
@@ -921,7 +921,7 @@ static void pad_cb(lv_event_t *e)
                 int rx2, ry2;
                 rotate_delta(dx, dy, &rx2, &ry2);
                 push_move((float)rx2, (float)ry2, dt);
-                if (!s_drag_lock) lv_label_set_text(s_hint, "move");
+                if (!s_drag_lock) lv_label_set_text(s_hint, "移动");
             }
         }
         s_last = p;
@@ -952,7 +952,7 @@ static void pad_cb(lv_event_t *e)
         if (s_drag_lock) {
             port_hid_mouse(0, 0, 0, 0);      /* release the button */
             s_drag_lock = false;
-            lv_label_set_text(s_hint, "2 fingers = right click");
+            lv_label_set_text(s_hint, "双指 = 右键");
             s_mode = MODE_NONE;
             return;
         }
@@ -961,10 +961,10 @@ static void pad_cb(lv_event_t *e)
              * Hold is kept as well — gripping it with a thumb leaves you
              * without two free fingers. */
             click(2);
-            lv_label_set_text(s_hint, "right click");
+            lv_label_set_text(s_hint, "右键");
         } else if (!s_moved && s_mode == MODE_PAD) {
             click(1);
-            lv_label_set_text(s_hint, "click");
+            lv_label_set_text(s_hint, "单击");
         }
         s_mode = MODE_NONE;
     }
@@ -1017,13 +1017,13 @@ static void poll_cb(lv_timer_t *t)
         /* Shown large so you can compare it against the number on the phone */
         lv_label_set_text_fmt(s_state, "%06lu", (unsigned long)key);
         lv_obj_set_style_text_color(s_state, lv_color_hex(0xF0F3F6), 0);
-        lv_label_set_text(s_hint, "match this on your phone");
+        lv_label_set_text(s_hint, "在手机上核对这串数字");
         return;
     }
 
     bool on = port_hid_connected();
     const char *nm = port_hid_peer();
-    lv_label_set_text(s_state, (nm && *nm) ? nm : (on ? "connected" : "advertising"));
+    lv_label_set_text(s_state, (nm && *nm) ? nm : (on ? "已连接" : "等待连接"));
     lv_obj_set_style_text_color(s_state, lv_color_hex(on ? 0x5BD48A : 0xE0B33A), 0);
     lv_obj_set_style_arc_color(s_ring, lv_color_hex(on ? 0x2E6E4A : 0x4A4030), LV_PART_MAIN);
 }
@@ -1062,17 +1062,18 @@ static void enter(lv_obj_t *root)
     s_state = lv_label_create(root);
     lv_label_set_text(s_state, "connecting");   /* overwrite LVGL's placeholder */
     lv_obj_set_style_text_color(s_state, lv_color_hex(0x5E5E66), 0);
-    lv_obj_set_style_text_font(s_state, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_state, &font_zh_20, 0);
     lv_obj_align(s_state, LV_ALIGN_CENTER, 0, -18);
 
     s_hint = lv_label_create(root);
-    lv_label_set_text(s_hint, "tap twice, then drag");
-    lv_obj_set_style_text_font(s_hint, &lv_font_montserrat_16, 0);
+    lv_label_set_text(s_hint, "点两下再拖动");
+    lv_obj_set_style_text_font(s_hint, &font_zh_16, 0);
     lv_obj_set_style_text_color(s_hint, lv_color_hex(0x5E5E66), 0);
     lv_obj_align(s_hint, LV_ALIGN_CENTER, 0, 18);
 
-    /* Air mouse on and off */
-    s_air = s_air_default;
+    /* Air mouse on and off. 🚨 Always starts in air mode: this is the entry the
+     * home icon leads to, so pressing it should give you what it says. */
+    s_air = true;
     s_air0_set = false;
     s_air_btn = lv_button_create(root);
     lv_obj_set_size(s_air_btn, 64, 34);
@@ -1202,17 +1203,19 @@ static void leave(void)
 
 static lv_color_t tint(void) { return lv_color_hex(0x7FB0FF); }
 
+/* 🚨 One entry, not two. There used to be a second badge_app_t here — "Air
+ * Mouse" — whose enter() did nothing but set s_air_default and call this same
+ * function. Two icons on the home screen for one implementation. The toggle
+ * inside has switched between the two modes all along, so all that was needed
+ * was to drop the duplicate.
+ *
+ * 🚨 It opens in air mode. The icon says air mouse, so that is what pressing it
+ * should give you; reaching for the pad is one tap away. The choice is not
+ * remembered between visits — this is a badge with no RTC whose clock comes off
+ * the network, and a mode that survives a power cut is one more thing to be
+ * wrong about. */
 const badge_app_t app_mouse = {
-    .name = "Trackpad", .art = &app_icon_mouse, .icon = LV_SYMBOL_GPS, .tint = tint,
+    .name = "空中鼠标", .art = &app_icon_mouse, .icon = LV_SYMBOL_GPS, .tint = tint,
     /* Held awake on entry; emit_cb lets go after three minutes hands-off. */
     .radio = RADIO_BLE, .keep_awake = true, .enter = enter, .leave = leave,
-};
-
-/* The door straight from home into the air mouse. Same app, different starting mode. */
-static void enter_air(lv_obj_t *root) { s_air_default = true; enter(root); s_air_default = false; }
-
-const badge_app_t app_air = {
-    .name = "Air Mouse", .art = &app_icon_mouse, .icon = LV_SYMBOL_GPS, .tint = tint,
-    /* Held awake on entry; emit_cb lets go after three minutes hands-off. */
-    .radio = RADIO_BLE, .keep_awake = true, .enter = enter_air, .leave = leave,
 };

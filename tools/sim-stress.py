@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Runs the six boards under the worst conditions — a shaken clock, and
-entering and leaving at random.
+"""Runs the games under the worst conditions — a shaken clock, and entering and
+leaving at random.
 
 🚨 In the simulator time flows as evenly as a ruler and memory is unlimited.
    Left that way it catches nothing that only breaks on the hardware. 'J' shakes
    the clock, and building with SIM_TIGHT=1 narrows LVGL's memory to what the
    hardware has (87 KB, or 13 KB with BLE on).
+
+🚨 The grid is the games menu, not the home ring. It used to list six boards,
+   which was the menu two reworks ago; the menu holds four now, one per row, so
+   the coordinates are a single column.
 """
 import subprocess, sys, os, tempfile, random
 D = os.path.dirname(os.path.abspath(__file__)) + "/.."
@@ -31,8 +35,9 @@ def tap(x, y, hold=140):
     send(f"T {x} {y} 1\n"); step(60); frame(); step(hold); frame()
     send(f"T {x} {y} 0\n"); step(60); frame(); step(120); frame()
 
-GRID = {"Bricks": (149, 145), "Marble": (317, 145), "Pop": (141, 233),
-        "Water": (325, 233), "Moon": (149, 321), "Earth": (317, 321)}
+# The games menu: 260x70 buttons at lv_obj_align(CENTER, 0, -135 + i*90).
+GRID = {"Bricks": (233, 98), "Pinball": (233, 188),
+        "Marble": (233, 278), "Pop": (233, 368)}
 
 for _ in range(8): step(100); frame()
 send("K 0\n"); step(100); frame()
@@ -43,7 +48,9 @@ import sys
 ROUNDS = int(sys.argv[1]) if len(sys.argv) > 1 else 3
 for rnd in range(ROUNDS):
     for name, (x, y) in GRID.items():
-        send("A 4\n"); step(400); frame()
+        # 🚨 index 0 is the games app in sim/main_sim.c's case 'A' list. It was
+        #    4 while the ring held nine entries; the list is seven now.
+        send("A 0\n"); step(400); frame()
         tap(x, y); step(400); frame()
         print(line("D 0\n"), end="\r")
         # random smearing

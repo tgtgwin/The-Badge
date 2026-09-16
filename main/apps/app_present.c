@@ -1,6 +1,7 @@
 /* The presentation remote. Turn the slide, and black the screen for a moment.
  * The buttons have to be large — during a talk they are pressed without looking. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "assets/assets.h"
 #include "port.h"
 
@@ -39,10 +40,10 @@ static lv_obj_t *btn(lv_obj_t *root, const char *txt, int w, int h, int dx, int 
     return b;
 }
 
-static const pkey_t NEXT  = { "", 0, K_PGDN, "next" };
-static const pkey_t PREV  = { "", 0, K_PGUP, "prev" };
-static const pkey_t BLACK = { "", 0, K_B,    "black" };
-static const pkey_t START = { "", 0, K_F5,   "start" };
+static const pkey_t NEXT  = { "", 0, K_PGDN, "下一页" };
+static const pkey_t PREV  = { "", 0, K_PGUP, "上一页" };
+static const pkey_t BLACK = { "", 0, K_B,    "黑屏" };
+static const pkey_t START = { "", 0, K_F5,   "开始" };
 static const pkey_t QUIT  = { "", 0, K_ESC,  "esc" };
 
 void present_build(lv_obj_t *root)
@@ -50,14 +51,14 @@ void present_build(lv_obj_t *root)
     /* Next slide is pressed most. It gets half the screen. */
     btn(root, LV_SYMBOL_RIGHT, 210, 150, 0, -92, 0x2E6E9E, &NEXT,  &lv_font_montserrat_48);
     btn(root, LV_SYMBOL_LEFT,  210,  90, 0,  22, 0x24242A, &PREV,  &lv_font_montserrat_32);
-    btn(root, "B",              96,  72, -78, 118, 0x24242A, &BLACK, &lv_font_montserrat_26);
-    btn(root, "F5",             96,  72,  78, 118, 0x24242A, &START, &lv_font_montserrat_26);
+    btn(root, "B",              96,  72, -78, 118, 0x24242A, &BLACK, &font_zh_26);
+    btn(root, "F5",             96,  72,  78, 118, 0x24242A, &START, &font_zh_26);
     /* The bottom is where the home handle lives. Esc moves up. */
-    btn(root, "Esc",           110,  52,   0, -176, 0x1C1C22, &QUIT,  &lv_font_montserrat_20);
+    btn(root, "Esc",           110,  52,   0, -176, 0x1C1C22, &QUIT,  &font_zh_20);
 
     s_state = lv_label_create(root);
     lv_label_set_text(s_state, "");
-    lv_obj_set_style_text_font(s_state, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_state, &font_zh_16, 0);
     lv_obj_set_style_text_color(s_state, lv_color_hex(0x5BD48A), 0);
     lv_obj_align(s_state, LV_ALIGN_CENTER, 0, 176);
 }

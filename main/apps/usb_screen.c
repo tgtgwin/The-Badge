@@ -8,6 +8,7 @@
  * 🚨 Done means reboot (see usb_msc.c). Say so on screen: a device that
  * blinks off and back on without warning reads as broken. */
 #include "app.h"
+#include "fonts/fonts.h"
 #include "port.h"
 #include "usb_export.h"
 #include <stdio.h>
@@ -25,11 +26,11 @@ static void paint(void)
 
     if (!on) {
         lv_label_set_text(s_big, LV_SYMBOL_DRIVE);
-        if (n > 0) lv_label_set_text_fmt(s_sub, "%d recordings", n);
-        else       lv_label_set_text(s_sub, "nothing to send");
+        if (n > 0) lv_label_set_text_fmt(s_sub, "%d 条录音", n);
+        else       lv_label_set_text(s_sub, "没有可导出的");
         lv_obj_set_style_bg_color(s_btn, lv_color_hex(n > 0 ? 0x16324A : 0x14161C), 0);
         lv_obj_set_style_border_color(s_btn, lv_color_hex(n > 0 ? 0x3E7FB8 : 0x24262E), 0);
-        lv_label_set_text(s_note, n > 0 ? "tap to become a USB drive" : "record something first");
+        lv_label_set_text(s_note, n > 0 ? "轻点变身为 U 盘" : "先录一段");
         return;
     }
 
@@ -38,22 +39,22 @@ static void paint(void)
      * problem from a badge problem. */
     if (usb_msc_ejected()) {
         lv_label_set_text(s_big, LV_SYMBOL_OK);
-        lv_label_set_text(s_sub, "ejected");
+        lv_label_set_text(s_sub, "已弹出");
         lv_obj_set_style_bg_color(s_btn, lv_color_hex(0x1C4034), 0);
         lv_obj_set_style_border_color(s_btn, lv_color_hex(0x5BD48A), 0);
-        lv_label_set_text(s_note, "tap to go back to COM (restarts)");
+        lv_label_set_text(s_note, "轻点回到串口（会重启）");
     } else if (usb_msc_mounted()) {
         lv_label_set_text(s_big, LV_SYMBOL_DRIVE);
-        lv_label_set_text_fmt(s_sub, "%d files", usb_export_files());
+        lv_label_set_text_fmt(s_sub, "%d 个文件", usb_export_files());
         lv_obj_set_style_bg_color(s_btn, lv_color_hex(0x1C4034), 0);
         lv_obj_set_style_border_color(s_btn, lv_color_hex(0x5BD48A), 0);
-        lv_label_set_text(s_note, "eject on the PC, or tap to finish");
+        lv_label_set_text(s_note, "在电脑上弹出，或轻点结束");
     } else {
         lv_label_set_text(s_big, LV_SYMBOL_REFRESH);
-        lv_label_set_text(s_sub, "waiting");
+        lv_label_set_text(s_sub, "等待中");
         lv_obj_set_style_bg_color(s_btn, lv_color_hex(0x3A3216), 0);
         lv_obj_set_style_border_color(s_btn, lv_color_hex(0xE0B33A), 0);
-        lv_label_set_text(s_note, "plug into a PC");
+        lv_label_set_text(s_note, "插到电脑上");
     }
 }
 
@@ -71,7 +72,7 @@ static void tap_cb(lv_event_t *e)
     (void)e;
     if (usb_msc_active()) { usb_msc_stop(); return; }   /* done — this reboots */
     if (usb_export_files() <= 0) return;
-    if (!usb_msc_start()) lv_label_set_text(s_note, "could not switch to USB");
+    if (!usb_msc_start()) lv_label_set_text(s_note, "无法切换到 USB");
     paint();
 }
 
@@ -100,8 +101,8 @@ void usb_screen_open(void)
     lv_obj_add_flag(s_scr, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *t = lv_label_create(s_scr);
-    lv_label_set_text(t, "USB export");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+    lv_label_set_text(t, "USB 导出");
+    lv_obj_set_style_text_font(t, &font_zh_20, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0x8A93A6), 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, -186);
 
@@ -120,12 +121,12 @@ void usb_screen_open(void)
     lv_obj_align(s_big, LV_ALIGN_CENTER, 0, -16);
 
     s_sub = lv_label_create(s_btn);
-    lv_obj_set_style_text_font(s_sub, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(s_sub, &font_zh_18, 0);
     lv_obj_set_style_text_color(s_sub, lv_color_hex(0xB6C2D6), 0);
     lv_obj_align(s_sub, LV_ALIGN_CENTER, 0, 34);
 
     s_note = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(s_note, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_note, &font_zh_14, 0);
     lv_obj_set_style_text_color(s_note, lv_color_hex(0x5A5A66), 0);
     lv_obj_align(s_note, LV_ALIGN_CENTER, 0, 178);
 

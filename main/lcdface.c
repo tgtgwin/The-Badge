@@ -1,5 +1,6 @@
 /* True LCD face. See lcdface.h for why this is shapes and not a picture. */
 #include "lcdface.h"
+#include "fonts/fonts.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -211,18 +212,18 @@ static void build(lcdface_t *f)
         lv_obj_set_style_bg_opa(d, on_opa(f), 0);
     }
 
-    f->head = label(f, "--- --- --", &lv_font_montserrat_24,
+    f->head = label(f, "--- --- --", &font_zh_24,
                     CX, y_head + H_HEAD / 2, f->aod ? LAB_AOD : LAB_ACTIVE);
 
     /* The source design had temperature, humidity and rain here. This board
      * has none of those, so the row shows what it does know. */
-    static const char *LAB[3] = { "SEC", "BAT", "UP" };
+    static const char *LAB[3] = { "秒", "电量", "运行" };
     cell_t *col[3] = { f->ss, f->bt, f->up };
     const int colw = BLOCK_W / 3;
     const int x0 = CX - BLOCK_W / 2;
     for (int i = 0; i < 3; i++) {
         int ccx = x0 + i * colw + colw / 2;
-        label(f, LAB[i], &lv_font_montserrat_16, ccx, y_blab + H_BOTLAB / 2,
+        label(f, LAB[i], &font_zh_16, ccx, y_blab + H_BOTLAB / 2,
               f->aod ? LAB_AOD : LAB_ACTIVE);
         cell_build(f, &col[i][0], ccx - scell + SMALL_GAP / 2, y_bdig, false);
         cell_build(f, &col[i][1], ccx + SMALL_GAP / 2,         y_bdig, false);
@@ -231,7 +232,7 @@ static void build(lcdface_t *f)
     /* The source had a diver's depth rating etched here. This board gets
      * what it actually is. */
     if (!f->aod)
-        label(f, "ESP32-S3 . 466", &lv_font_montserrat_14, CX, 466 - 54, 87);
+        label(f, "ESP32-S3 . 466", &font_zh_14, CX, 466 - 54, 87);
 }
 
 lcdface_t *lcdface_create(lv_obj_t *parent, bool aod)
@@ -287,11 +288,11 @@ void lcdface_update(lcdface_t *f)
     }
     if (tm.tm_mday != f->last_day) {
         f->last_day = tm.tm_mday;
-        static const char *WD[7] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
-        static const char *MO[12] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                                      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
-        char buf[20];
-        snprintf(buf, sizeof buf, "%s  %s %02d",
+        static const char *WD[7] = { "周日", "周一", "周二", "周三", "周四", "周五", "周六" };
+        static const char *MO[12] = { "1月", "2月", "3月", "4月", "5月", "6月",
+                                      "7月", "8月", "9月", "10月", "11月", "12月" };
+        char buf[32];
+        snprintf(buf, sizeof buf, "%s %s%d日",
                  WD[tm.tm_wday % 7], MO[tm.tm_mon % 12], tm.tm_mday);
         if (f->head) lv_label_set_text(f->head, buf);
     }

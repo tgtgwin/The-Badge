@@ -149,7 +149,7 @@ static void time_gatts(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
             apply_time(p->write.value, p->write.len);
         } else if (p->write.handle == s_meet_cccd && p->write.len >= 2) {
             s_subscribed = (p->write.value[0] & 0x01) != 0;
-            ESP_LOGI(TAG, "meeting subscription %s", s_subscribed ? "on" : "off");
+            ESP_LOGI(TAG, "meeting subscription %s", s_subscribed ? "开" : "关");
         } else if (p->write.handle == s_meet_handle && p->write.len >= 1) {
             s_ack = p->write.value[0];
             ESP_LOGI(TAG, "app replied 0x%02X", s_ack);

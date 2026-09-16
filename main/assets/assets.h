@@ -11,9 +11,6 @@ extern const lv_image_dsc_t app_icon_present;
 extern const lv_image_dsc_t app_icon_calc;
 extern const lv_image_dsc_t app_icon_games;
 extern const lv_image_dsc_t app_icon_meet;
-extern const lv_image_dsc_t app_icon_water;
-extern const lv_image_dsc_t app_icon_moon;
-extern const lv_image_dsc_t app_icon_earth;
 extern const lv_image_dsc_t icon_gear;
 
 
