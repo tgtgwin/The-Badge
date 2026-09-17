@@ -2,14 +2,10 @@
 /*******************************************************************************
  * Size: 14 px
  * Bpp: 8
- * Opts: --no-compress --bpp 8 --format lvgl --font /var/folders/5w/vn6hzhf12bb1xq7mf7zwz3pc0000gn/T/mkfonts-8fz1dk4z/regular.ttf --symbols ·—…─═一三上下不两个中串为二五亮今从件任会位住何余保停元充先克入全六关再出击分切到剩加动助区单占卡即双发取受变口另可台右同名向启周器四回在块声备天失始字存完定宫密对导屏已帮应度开引弹归录待忘息戏成或手打扫拖持指按换接描插搜改数文旋无日时暂月有未机束条标校核格次止正步段气池没法泡注测消游滚点片牙珠用电的盘码砖秒移空立等算索纸线结给络绝继续编网置脑自蓝行被言计记设试语败起足踪身转轻辑过运近还这连迷追送通速部配重量钟键长闭闲间附零音页风麦黑鼠！（），？ --size 14 --lv-font-name font_zh_14 --lv-fallback lv_font_montserrat_14 -o /Users/kinton/esp32 badage/main/fonts/font_zh_14.c
+ * Opts: --no-compress --bpp 8 --format lvgl --font /var/folders/5w/vn6hzhf12bb1xq7mf7zwz3pc0000gn/T/mkfonts-8skzakd6/regular.ttf --symbols ·—…─═一三上下不两个中串为二五亮今从件任会位住何余保停元充先克入全六关再出击分切到剩加动助区单占卡即双发取受变口另可台右同名向启周器四回在块声备天失始字存完定宫密对导屏已帮应度开引弹归录待忘息戏成或手打扫拖持指按换接描插搜改数文旋无日时暂月有未机束条标校核格次止正步段气池没法泡注测消游滚点片牙珠用电的盘码砖秒移空立等算索纸线结给络绝继续编网置脑自蓝行被言计记设试语败起足踪身转轻辑过运近还这连迷追送通速部配重量钟键长闭闲间附零音页风麦黑鼠！（），？ --size 14 --lv-font-name font_zh_14 --lv-fallback lv_font_montserrat_14 -o /Users/kinton/esp32 badage/main/fonts/font_zh_14.c
  ******************************************************************************/
 
-#ifdef LV_LVGL_H_INCLUDE_SIMPLE
 #include "lvgl.h"
-#else
-#include "lvgl/lvgl.h"
-#endif
 
 #ifndef FONT_ZH_14
 #define FONT_ZH_14 1

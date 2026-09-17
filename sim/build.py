@@ -39,7 +39,22 @@ CC = os.environ.get("CC", "gcc")
 AR = os.environ.get("AR", "ar")
 JOBS = int(os.environ.get("SIM_JOBS") or os.cpu_count() or 4)
 
-CFLAGS = ["-O1", "-w", "-DBADGE_SIM", "-DLV_CONF_INCLUDE_SIMPLE"]
+# 🚨 Not "-w" any more, and the reason is a bug the board found and the
+#    simulator could not. The firmware builds with -Werror, so a switch that
+#    misses an enumeration value is a hard error there; here, -w silenced it and
+#    the build went green. It surfaced during the first idf.py build, after the
+#    work was committed and with the badge in hand.
+#    🚨 And -w cannot be undone by a later -Werror=switch — it is absolute, and
+#    the option after it has no effect at all. Verified both ways round; it is
+#    the reason this is a removal rather than an addition.
+#    The list is the firmware's errors that a PC can also catch. Warnings are
+#    otherwise left on and discarded: build.py only reports a file when the
+#    compiler exits non-zero, so nothing gets noisier.
+CFLAGS = ["-O1", "-DBADGE_SIM", "-DLV_CONF_INCLUDE_SIMPLE",
+          "-Werror=switch",
+          "-Werror=implicit-function-declaration",
+          "-Werror=return-type",
+          "-Werror=int-conversion"]
 if os.environ.get("SIM_TIGHT"):
     CFLAGS.append("-DBADGE_SIM_TIGHT")
 if os.name == "nt":

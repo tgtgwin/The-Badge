@@ -231,6 +231,28 @@ def is_stale(path, size, nchars, bold, bpp):
 def write_stamp(path, size, nchars, bold, bpp):
     with open(path, encoding="utf-8") as fh:
         body = fh.read()
+
+    # 🚨 lv_font_conv emits its include as a choice:
+    #
+    #        #ifdef LV_LVGL_H_INCLUDE_SIMPLE
+    #        #include "lvgl.h"
+    #        #else
+    #        #include "lvgl/lvgl.h"
+    #        #endif
+    #
+    #    and the macro is not defined in this build, so the firmware took the
+    #    else and stopped on a missing `lvgl/lvgl.h` — a header the ESP-IDF lvgl
+    #    component does not put on the path that way. The simulator never saw it:
+    #    it is handed a different include tree, so the same file compiles there.
+    #    Collapsing the whole block to the simple form is not a workaround for a
+    #    missing define — it is making these match every other generated file in
+    #    the tree, tools/mkassets.py's icons included, which have always said
+    #    `#include "lvgl.h"` and always built.
+    body = body.replace(
+        '#ifdef LV_LVGL_H_INCLUDE_SIMPLE\n#include "lvgl.h"\n'
+        '#else\n#include "lvgl/lvgl.h"\n#endif\n',
+        '#include "lvgl.h"\n')
+
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(stamp_of(size, nchars, bold, bpp) + "\n" + body)
 

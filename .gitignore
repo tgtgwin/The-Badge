@@ -31,3 +31,6 @@ docs/flash/manifest.json
 
 # CodeBuddy workspace metadata
 .codebuddy
+
+# clangd's index cache, written by the editor's language server
+.cache/

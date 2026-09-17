@@ -156,6 +156,14 @@ static void long_cb(lv_event_t *e)
      *    and deliberate, and rare-and-deliberate is what a long press is for.
      *    Stop stays on the tap, because stopping is what people do in a hurry. */
     case M_REC:  port_rec_pause(!port_rec_paused()); paint(); break;
+    /* 🚨 Spelled out rather than left to a default. The firmware builds with
+     * -Werror=switch, so the compiler names any value this does not handle —
+     * which is what caught this the first time it went to the board. A `default`
+     * would silence that and mean the next state added to this screen silently
+     * has no long press. */
+    case M_SAVED:
+    case M_FAIL:
+        break;
     }
 }
 
